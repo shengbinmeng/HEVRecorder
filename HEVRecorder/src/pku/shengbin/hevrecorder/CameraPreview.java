@@ -1,13 +1,16 @@
 package pku.shengbin.hevrecorder;
 
-import java.io.IOException;
+import java.util.List;
 
+import android.graphics.ImageFormat;
 import android.hardware.Camera;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.widget.FrameLayout.LayoutParams;
 
 public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback {
 
@@ -28,11 +31,46 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
         mHolder = getHolder();
         mHolder.addCallback(this);
         
-        mCamera = camera;
+        setCamera(camera);
     }
     
     public void setCamera(Camera c) {
     	mCamera = c;
+    	
+    	// set image format
+    	Camera.Parameters p = mCamera.getParameters();
+    	p.setPreviewFormat(ImageFormat.YV12);
+    	mCamera.setParameters(p);
+
+    	setPreviewSize();
+    }
+    
+    public void setPreviewSize () {
+    	Camera.Parameters p = mCamera.getParameters();
+    	int min = p.getSupportedPreviewFpsRange().get(0)[0];
+    	int max = p.getSupportedPreviewFpsRange().get(0)[1];
+    	p.setPreviewFpsRange(min, max);
+    	List<Camera.Size> l = p.getSupportedPreviewSizes();
+    	Camera.Size size = l.get(0);
+    	for (int i = 0; i < l.size(); i++) {
+        	size = l.get(i);
+        	if (size.width < 400) {
+            	p.setPreviewSize(size.width, size.height);
+            	break;
+        	}
+    	}
+    	mCamera.setParameters(p);
+    }
+    
+    public void setDisplaySize() {
+    	
+    	Camera.Size size = mCamera.getParameters().getPreviewSize();
+    	LayoutParams params = (LayoutParams) this.getLayoutParams(); 
+    	params.gravity = Gravity.CENTER;
+        params.width = size.width;
+        params.height = size.height;
+        this.setLayoutParams(params);
+        
     }
 
     public void surfaceCreated(SurfaceHolder holder) {
@@ -42,15 +80,7 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
    			.setPositiveButton(android.R.string.ok, null)
    			.create();
        		dialog.show();
-       		return;
     	}
-        // The Surface has been created, now tell the camera where to draw the preview.
-        try {
-            mCamera.setPreviewDisplay(holder);
-            mCamera.startPreview();
-        } catch (IOException e) {
-            Log.d(TAG, "Error setting camera preview: " + e.getMessage());
-        }
     }
 
     public void surfaceDestroyed(SurfaceHolder holder) {
@@ -61,7 +91,7 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
         // If your preview can change or rotate, take care of those events here.
         // Make sure to stop the preview before resizing or reformatting it.
 
-        if (mHolder.getSurface() == null){
+        if (mHolder.getSurface() == null) {
         	// preview surface does not exist
         	return;
         }
@@ -79,6 +109,7 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
 
         // set preview size and make any resize, rotate or
         // reformatting changes here
+        
 
         // start preview with new settings
         try {

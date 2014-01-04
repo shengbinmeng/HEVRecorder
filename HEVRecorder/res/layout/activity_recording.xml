@@ -3,15 +3,14 @@
 		android:id="@+id/camera_preview"
 		android:layout_width="fill_parent"
 		android:layout_height="fill_parent"
-		android:orientation="horizontal" 
-	 >
+		android:orientation="horizontal" >
 	 
     <RelativeLayout
         android:id="@+id/layout_text"
 	    android:layout_width="match_parent"
 	    android:layout_height="match_parent" >
 	 
-	    <TextView
+    	<TextView
 	        android:id="@+id/text_info"
 	        android:layout_width="wrap_content"
 	        android:layout_height="wrap_content"
@@ -21,21 +20,21 @@
 	        android:layout_marginTop="20dp"
 	        android:text="@string/placeholder"
 	        android:textColor="#FF0000" />
-	 
-		</RelativeLayout>
+ 
+	</RelativeLayout>
 		
-	    <RelativeLayout
-	        android:id="@+id/layout_button"
-		    android:layout_width="match_parent"
-		    android:layout_height="match_parent" >
-		 
-		    <Button
-		        android:id="@+id/button_control"
-		        android:layout_width="wrap_content"
-		        android:layout_height="wrap_content"
-		        android:layout_alignParentBottom="true"
-		        android:layout_centerHorizontal="true"
-		        android:text="@string/start" />
-		 
-		</RelativeLayout>
+    <RelativeLayout
+        android:id="@+id/layout_button"
+	    android:layout_width="match_parent"
+	    android:layout_height="match_parent" >
+	 
+	    <Button
+	        android:id="@+id/button_control"
+	        android:layout_width="wrap_content"
+	        android:layout_height="wrap_content"
+	        android:layout_alignParentBottom="true"
+	        android:layout_centerHorizontal="true"
+	        android:text="@string/start" />
+	 
+	</RelativeLayout>
 </FrameLayout>

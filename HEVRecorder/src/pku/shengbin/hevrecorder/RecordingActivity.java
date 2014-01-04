@@ -18,6 +18,14 @@ public class RecordingActivity extends Activity {
     private Camera mCamera;
     private CameraPreview mPreview;
     private boolean mRecording = false;
+    
+    private native int native_encoder_open();
+    private native int native_encoder_encode(byte[] data);
+    private native int native_encoder_close();
+
+    static {
+    	System.loadLibrary("native_encoder");
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -49,17 +57,24 @@ public class RecordingActivity extends Activity {
 			public void onClick(View arg0) {
 				// TODO Auto-generated method stub
 				if (mRecording) {
+					// close the encoder
+					native_encoder_close();
 					mCamera.setPreviewCallback(null);
 					mRecording = false;
 					((Button)arg0).setText(R.string.start);
 				} else {
+					// prepare the encoder
+					native_encoder_open();
 					
+					// encode every frame
 					mCamera.setPreviewCallback(new PreviewCallback() {
 						@Override
-						public void onPreviewFrame(byte[] arg0, Camera arg1) {
+						public void onPreviewFrame(byte[] data, Camera cam) {
 							long beginTime = System.currentTimeMillis();
-							Log.i(TAG, "encode a frame");
+							int stride = (352/16+1)*16;
+							Log.i(TAG, "encode a frame: " + data.length + " - " + stride * 288 + " = " + (data.length - stride*288));
 							
+							native_encoder_encode(data);
 							long endTime = System.currentTimeMillis();
 	                        Log.d(TAG, "time cost:" + (endTime - beginTime));
 						}
@@ -72,6 +87,8 @@ public class RecordingActivity extends Activity {
 			}
         	
         });
+        
+        mPreview.setDisplaySize();
     }
     
 	// attempt to get a Camera instance
@@ -83,6 +100,7 @@ public class RecordingActivity extends Activity {
             // Camera is not available (in use or does not exist)
         	e.printStackTrace();
         }
+    	
         return c;
     }
     
@@ -91,7 +109,7 @@ public class RecordingActivity extends Activity {
         super.onStart();
         if (mCamera == null) {
         	// Create an instance of Camera
-        	mCamera = getCameraInstance();
+        	mCamera = getCameraInstance();     	
         	mPreview.setCamera(mCamera);
         }
 
