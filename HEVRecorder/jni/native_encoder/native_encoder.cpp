@@ -9,6 +9,7 @@ FILE *gFileOut;
 
 int native_encoder_open()
 {
+	/*
 	LENT_param_t *param = &gParam;
 	LENT_param_default( param, LENT_PRESET_ULTRAFAST );
 	gHandle = LENT_encoder_open( param );
@@ -17,11 +18,13 @@ int native_encoder_open()
 	}
 
 	gFileOut = fopen("/sdcard/test.hm", "rb");
+	*/
 	return 0;
 }
 
 int native_encoder_encode()
 {
+	/*
 	LENT_picture_t pic, pic_out;
 	int i_nal_size, i_nal;
 	LENT_nal_t *nal = NULL;
@@ -31,11 +34,13 @@ int native_encoder_encode()
 	} else if( i_nal_size ) {
 		fwrite( nal->p_payload, sizeof(uint8_t), i_nal_size, gFileOut);
 	}
+	*/
 	return 0;
 }
 
 int native_encoder_close()
 {
+	/*
 	LENT_picture_t pic, pic_out;
 	int i_nal_size, i_nal;
 	LENT_nal_t *nal = NULL;
@@ -52,7 +57,7 @@ int native_encoder_close()
 	fflush(gFileOut);
 	fclose( gFileOut );
 	LENT_encoder_close( gHandle );
-
+	*/
 	return 0;
 }
 
