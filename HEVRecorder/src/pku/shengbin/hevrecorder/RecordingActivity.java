@@ -19,11 +19,13 @@ public class RecordingActivity extends Activity {
     private CameraPreview mPreview;
     private boolean mRecording = false;
     
+    // the open function may pass some parameters, e.g. width and height
     private native int native_encoder_open();
     private native int native_encoder_encode(byte[] data);
     private native int native_encoder_close();
 
     static {
+    	System.loadLibrary("lenthevcenc");
     	System.loadLibrary("native_encoder");
     }
 
@@ -71,8 +73,10 @@ public class RecordingActivity extends Activity {
 						@Override
 						public void onPreviewFrame(byte[] data, Camera cam) {
 							long beginTime = System.currentTimeMillis();
-							int stride = (352/16+1)*16;
-							Log.i(TAG, "encode a frame: " + data.length + " - " + stride * 288 + " = " + (data.length - stride*288));
+							int width = 352, height = 288;
+							int stride_y = (width % 16 == 0 ? width/16 : width/16 + 1)*16;
+							int stride_uv = (width/2 % 16 == 0 ? width/2/16 : width/2/16 + 1)*16;
+							Log.d(TAG, "preview a frame: " + data.length + ", " + (stride_y*height + 2*stride_uv*height/2) + ", " + data[0] + data[1] + data[2] + data[3] + data[4]);
 							
 							native_encoder_encode(data);
 							long endTime = System.currentTimeMillis();
