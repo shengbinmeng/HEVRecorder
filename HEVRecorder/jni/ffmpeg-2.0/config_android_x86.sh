@@ -15,7 +15,7 @@ PREFIX=./android/x86
     --enable-cross-compile \
     --cross-prefix=$TOOLCHAIN/bin/i686-linux-android- \
     --sysroot=$SYSROOT \
-    --extra-cflags="-O2 -Ithirdparty/x86 -msse4.1 -ffast-math -mfpmath=sse" \
+    --extra-cflags="-O2 -Ithirdparty/x86 -msse3 -ffast-math -mfpmath=sse" \
     --extra-ldflags="-Lthirdparty/x86" \
     --disable-amd3dnow \
     --disable-amd3dnowext \
@@ -49,3 +49,5 @@ PREFIX=./android/x86
     --enable-encoder=aac \
     --enable-muxer=mpegts \
     --enable-muxer=flv \
+    --enable-encoder=liblenthevc \
+    --enable-liblenthevcenc \
