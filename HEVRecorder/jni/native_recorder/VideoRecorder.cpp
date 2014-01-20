@@ -194,7 +194,7 @@ void VideoRecorderImpl::open_audio()
 		return;
 	}
 
-	if (avcodec_open2(c, codec,&pAVDictionary) < 0) {
+	if (avcodec_open2(c, codec,NULL) < 0) {
 		LOGE("could not open audio codec\n");
 		return;
 	}
@@ -224,21 +224,22 @@ AVStream *VideoRecorderImpl::add_video_stream(enum AVCodecID codec_id)
 		LOGD("could not alloc stream\n");
 		return NULL;
 	}
-	st->codec=avcodec_alloc_context3(pCodecH265);
+	st->codec= avcodec_alloc_context3(pCodecH265);
 	c = st->codec;
 
 	/* put sample parameters */
 	c->bit_rate = video_bitrate;
 	c->width = video_width;
 	c->height = video_height;
-	c->time_base.num = 1;
-	c->time_base.den = 90000;
-	c->gop_size=10;
-	c->max_b_frames=1;
-	c->thread_count = 1;
+	//c->time_base.num = 15000; // w
+	//c->time_base.den = 1000;  // w
+	c->gop_size=25;
+	c->thread_count = 2;
 	c->pix_fmt = PIX_FMT_YUV420P;
 	av_opt_set(c->priv_data, "preset", "ultrafast",0);
-
+	av_opt_set(c->priv_data, "wpp", "4",0);
+	av_opt_set(c->priv_data, "disable_sei", "1",0);
+	av_opt_set(c->priv_data, "HM_compatibility", "12",0);
 	return st;
 }
 
@@ -255,7 +256,6 @@ AVFrame *VideoRecorderImpl::alloc_picture(enum PixelFormat pix_fmt, int width, i
 	}
 
 	size = avpicture_get_size(pix_fmt, width, height);
-	LOGD(" picture frame size %d\n",size);
 	picture_buf = (uint8_t *)av_malloc(size);
 	if (!picture_buf) {
 		av_free(pict);
@@ -264,7 +264,6 @@ AVFrame *VideoRecorderImpl::alloc_picture(enum PixelFormat pix_fmt, int width, i
 	}
 	avpicture_fill((AVPicture *)pict, picture_buf,
 				   pix_fmt, width, height);
-	LOGD(" picture frame size %d\n",sizeof(picture_buf));
 	return pict;
 }
 
@@ -288,7 +287,7 @@ void VideoRecorderImpl::open_video()
 		return;
 	}
 
-	if (avcodec_open2(c, codec,&pAVDictionary) < 0) {
+	if (avcodec_open2(c, codec,NULL) < 0) {
 		LOGE("could not open codec\n");
 		return;
 	}
@@ -301,6 +300,7 @@ void VideoRecorderImpl::open_video()
 			LOGE("could not allocate video_outbuf\n");
 			return;
 		}
+		LOGD("video_buf alloc %d\n",video_outbuf_size);
 	}
 
 	// the AVFrame the YUV frame is stored after conversion
@@ -309,7 +309,7 @@ void VideoRecorderImpl::open_video()
 		LOGE("Could not allocate picture\n");
 		return;
 	}
-
+/*
 	// the src AVFrame before conversion
 	tmp_picture = alloc_picture(video_pixfmt, c->width, c->height);
 	if (!tmp_picture) {
@@ -320,16 +320,16 @@ void VideoRecorderImpl::open_video()
 	// we only allocate the tmp_picture structure and set it up with default values. tmp_picture->data[0] is then reassigned to the incoming
 	// frame data on the SupplyVideoFrame() call.
 
-	if(video_pixfmt != PIX_FMT_NV21) {
-		LOGE("We've hardcoded linesize in tmp_picture for PIX_FMT_NV21 only!!\n");
+	if(video_pixfmt != PIX_FMT_YUV420P) {
+		LOGE("We've hardcoded linesize in tmp_picture for PIX_FMT_YUV420P only!!\n");
 		return;
 	}
 
-	img_convert_ctx = sws_getContext(video_width, video_height, PIX_FMT_NV21, c->width, c->height, PIX_FMT_YUV420P, /*SWS_BICUBIC*/SWS_FAST_BILINEAR, NULL, NULL, NULL);
+	img_convert_ctx = sws_getContext(video_width, video_height, PIX_FMT_NV21, c->width, c->height, PIX_FMT_YUV420P, SWS_FAST_BILINEAR, NULL, NULL, NULL);
 	if(img_convert_ctx==NULL) {
 		LOGE("Could not initialize sws context\n");
 		return;
-	}
+	}*/
 }
 
 bool VideoRecorderImpl::Close()
@@ -338,17 +338,16 @@ bool VideoRecorderImpl::Close()
 		// flush out delayed frames
 		AVPacket pkt;
 		int out_size;
+		av_init_packet(&pkt);
+		pkt.data=video_outbuf;
+		pkt.size=video_outbuf_size;
 		AVCodecContext *c = video_st->codec;
-		while(out_size = avcodec_encode_video(c, video_outbuf, video_outbuf_size, NULL)) {
-			av_init_packet(&pkt);
+		int got_packet=0;
+		while(avcodec_encode_video2(c, &pkt,NULL, &got_packet)==0) {
+
 			LOGD("write!!!!!!!");
 			if (c->coded_frame->pts != AV_NOPTS_VALUE)
 				pkt.pts = av_rescale_q(c->coded_frame->pts, c->time_base, video_st->time_base);
-
-			pkt.flags |= AV_PKT_FLAG_KEY;
-			pkt.stream_index = video_st->index;
-			pkt.data = video_outbuf;
-			pkt.size = out_size;
 
 			if(av_interleaved_write_frame(oc, &pkt) != 0) {
 				LOGE("Unable to write video frame when flushing delayed frames\n");
@@ -513,7 +512,7 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 
 	AVCodecContext *c = video_st->codec;
 
-	memcpy(tmp_picture->data[0], frameData, numBytes);
+	memcpy(picture->data[0], frameData, numBytes);
 	// Don't copy the frame unnecessarily! Simply point tmp_picture->data[0] to the incoming frame
 	//tmp_picture->data[0]=(uint8_t*)frameData;
 
@@ -522,19 +521,13 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 	// and store it in "picture"
 	// if it's already in YUV420P format we'll assume it's stored in
 	// "picture" from before
-	LOGD("Tem_piture DATA::\n%s\n-----------------------\n",tmp_picture->data[1]);
-
-	if(video_pixfmt != PIX_FMT_YUV420P) {
-		int high=sws_scale(img_convert_ctx, tmp_picture->data, tmp_picture->linesize, 0, video_height, picture->data, picture->linesize);
-		//LOGD("high DATA::\n%d\n-----------------------\n",high);
-	}
 
 	if(timestamp_base == 0)
 		timestamp_base = timestamp;
 
-	picture->pts = 90 * (timestamp - timestamp_base);	// assuming millisecond timestamp and 90 kHz timebase
-	LOGD("picture DATA:\n%s\n-----------------------\n",picture->data[1]);
-    ///---------------------PICTURE CONVERT NO ISSUe--------------
+	//picture->pts = 90 * (timestamp - timestamp_base);	// assuming millisecond timestamp and 90 kHz timebase
+	LOGD("picture DATA:\n%s\n-----------------------\n",picture->data[0]);
+
 	AVPacket pkt;
 	av_init_packet(&pkt);
 	pkt.data =video_outbuf;
@@ -544,7 +537,7 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 	int ret=avcodec_encode_video2(c, &pkt, picture, &got_packet);
 	LOGD("avcodec_encode_video returned %d\n", got_packet);
 
-	if(!ret && got_packet && c->coded_frame) {
+	if((!ret) && got_packet && c->coded_frame) {
 			if (c->coded_frame->pts != AV_NOPTS_VALUE){
 					c->coded_frame->key_frame = !!(pkt.flags & AV_PKT_FLAG_KEY);
 			}
@@ -562,11 +555,11 @@ VideoRecorder* VideoRecorder::New()
 int native_recorder_open(){
 	recorder = new VideoRecorderImpl();
 	recorder->SetAudioOptions(AudioSampleFormatS16, 2, 44100, 64000);
-	recorder->SetVideoOptions(VideoFrameFormatNV21, 352, 288, 400000);
+	recorder->SetVideoOptions(VideoFrameFormatYUV420P, 352, 288, 400000);
 	char filename[512], timenow[100];
 	time_t now = time(0);
 	strftime(timenow, 100, "%Y-%m-%d-%H-%M-%S", localtime (&now));
-	sprintf(filename, "/sdcard/xxx-%s.mp4", timenow);
+	sprintf(filename, "/sdcard/xxx-%s.flv", timenow);
 	recorder->Open(filename, false, true);
 	isRecording=1;
 	frameCnt=0;

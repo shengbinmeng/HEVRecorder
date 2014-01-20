@@ -42,5 +42,6 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := ffmpeg
 LOCAL_WHOLE_STATIC_LIBRARIES := avutil_prebuilt avcodec_prebuilt avformat_prebuilt \
 								avfilter_prebuilt swscale_prebuilt swresample_prebuilt
+LOCAL_SHARED_LIBRARIES := lenthevcenc
 
 include $(BUILD_SHARED_LIBRARY)
