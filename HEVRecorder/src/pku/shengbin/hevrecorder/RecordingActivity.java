@@ -24,7 +24,7 @@ public class RecordingActivity extends Activity {
     //---------------------audio record------------
     int audio_sample_format=2;
     int audio_sample_size=2;
-    int audio_channels = 2;
+    int audio_channels = AudioFormat.CHANNEL_IN_MONO;
     int audio_bit_rate = 64000;
     int audio_frequency = 44100;
     int recBufSize;
@@ -34,18 +34,17 @@ public class RecordingActivity extends Activity {
         public void run() {  
             try {  
                 byte[] buffer = new byte[recBufSize];  
-                audioRecord.startRecording();//开始录制  
+                audioRecord.startRecording();
                 
                   
                 while (mRecording) {  
-                    //从MIC保存数据到缓冲区  
+                    
                     int bufferReadResult = audioRecord.read(buffer, 0,  
-                            recBufSize);  
-  
-                    byte[] tmpBuf = new byte[bufferReadResult];  
-                    System.arraycopy(buffer, 0, tmpBuf, 0, bufferReadResult);  
-                    //传输数据给encoder() 
-                    native_recorder_encode_sound(tmpBuf); 
+                            recBufSize); 
+                    if(bufferReadResult==0){
+                    	return ;
+                    }
+                    native_recorder_encode_sound(buffer); 
                 }  
                 audioRecord.stop();  
             } catch (Throwable t) {  
@@ -80,14 +79,14 @@ public class RecordingActivity extends Activity {
     	getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
     	
         setContentView(R.layout.activity_recording);
-		/*/-----------audio recorder---------------
-        recBufSize = 900;
+		//-----------audio recorder---------------
+        recBufSize = AudioRecord.getMinBufferSize(audio_frequency,  
+               audio_channels, audioEncoding);  
         audioRecord=new AudioRecord(MediaRecorder.AudioSource.MIC, audio_frequency,  
                 audio_channels, audioEncoding, recBufSize);  
         //-----------audio rd end-----------------*/
         // Create an instance of Camera
         mCamera = getCameraInstance();
-
         // Create our Preview view and set it as the content of our activity.
         mPreview = new CameraPreview(this, mCamera);
         FrameLayout preview = (FrameLayout) findViewById(R.id.camera_preview);
@@ -105,11 +104,12 @@ public class RecordingActivity extends Activity {
 			@Override
 			public void onClick(View arg0) {
 				// TODO Auto-generated method stub 
-                new RecordPlayThread().start();// 开一条线程边录边放  
+               // new RecordPlayThread().start();
 				if (mRecording) {
 					// close the encoder
 					native_recorder_close();
 					mCamera.setPreviewCallback(null);
+					
 					mRecording = false;
 					((Button)arg0).setText(R.string.start);
 				} else {
@@ -121,10 +121,6 @@ public class RecordingActivity extends Activity {
 						@Override
 						public void onPreviewFrame(byte[] data, Camera cam) {
 							long beginTime = System.currentTimeMillis();
-							int width = 352, height = 288;
-							int stride_y = (width % 16 == 0 ? width/16 : width/16 + 1)*16;
-							int stride_uv = (width/2 % 16 == 0 ? width/2/16 : width/2/16 + 1)*16;
-							Log.d(TAG, "preview a frame: " + data.length + ", " + (stride_y*height + 2*stride_uv*height/2) + ", " + data[0] + data[1] + data[2] + data[3] + data[4]);
 							
 							native_recorder_encode_video(data);
 							long endTime = System.currentTimeMillis();

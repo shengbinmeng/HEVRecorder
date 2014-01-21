@@ -131,11 +131,13 @@ bool VideoRecorderImpl::Open(const char *mp4File, bool hasAudio, bool dbg)
 		LOGE("could not deduce output format from file extension\n");
 		return false;
 	}
+	LOGD("prepare to add stream");
 	video_st = add_video_stream(AV_CODEC_ID_HEVC);
-
+	LOGD("added success");
+	LOGD("prepare to add audio stream");
 	if(hasAudio)
-		audio_st = add_audio_stream(CODEC_ID_AAC);
-
+		audio_st = add_audio_stream(AV_CODEC_ID_AAC);
+	LOGD("added success");
 	if(dbg)
 		av_dump_format(oc, 0, mp4File, 1);
 
@@ -143,13 +145,12 @@ bool VideoRecorderImpl::Open(const char *mp4File, bool hasAudio, bool dbg)
 
 	if(hasAudio)
 		open_audio();
-
 	if (avio_open(&oc->pb, mp4File, AVIO_FLAG_WRITE) < 0) {
 		LOGE("could not open '%s'\n", mp4File);
 		return false;
 	}
-
-	avformat_write_header(oc,&pAVDictionary);
+LOGD("OPEN OK");
+	avformat_write_header(oc,NULL);
 
 	return true;
 }
@@ -158,22 +159,23 @@ AVStream *VideoRecorderImpl::add_audio_stream(enum AVCodecID codec_id)
 {
 	AVCodecContext *c;
 	AVStream *st;
-    AVCodec *codec;
-    codec= avcodec_find_encoder(c->codec_id);
-	st = avformat_new_stream(oc,codec);
+    AVCodec *AAC_codec;
+    LOGD("find audio codec");
+    AAC_codec= avcodec_find_encoder(codec_id);
+    LOGD("end find audio codec");
+	st = avformat_new_stream(oc,NULL);//change
 	if (!st) {
 		LOGE("could not alloc stream\n");
 		return NULL;
 	}
-
+	st->codec=avcodec_alloc_context3(AAC_codec);
 	c = st->codec;
-	c->codec_id = codec_id;
-	c->codec_type = AVMEDIA_TYPE_AUDIO;
-	c->sample_fmt = audio_sample_format;
-	c->bit_rate = audio_bit_rate;
-	c->sample_rate = audio_sample_rate;
-	c->channels = audio_channels;
-	c->profile = FF_PROFILE_AAC_LOW;
+	c->codec_id = AV_CODEC_ID_AAC;
+	c->sample_fmt = AV_SAMPLE_FMT_S16;
+	c->sample_rate = 44100;
+	c->channels = 2;
+	c->channel_layout = AV_CH_LAYOUT_STEREO;
+	c->bit_rate = 64000;
 
 	if (oc->oformat->flags & AVFMT_GLOBALHEADER)
 		c->flags |= CODEC_FLAG_GLOBAL_HEADER;
@@ -183,6 +185,7 @@ AVStream *VideoRecorderImpl::add_audio_stream(enum AVCodecID codec_id)
 
 void VideoRecorderImpl::open_audio()
 {
+	LOGD("Open_Audio");
 	AVCodecContext *c;
 	AVCodec *codec;
 
@@ -193,13 +196,15 @@ void VideoRecorderImpl::open_audio()
 		LOGE("audio codec not found\n");
 		return;
 	}
-
-	if (avcodec_open2(c, codec,NULL) < 0) {
-		LOGE("could not open audio codec\n");
+	int ret=0;
+	LOGD("Find_Audio_encoder");
+	ret=avcodec_open2(c, codec,NULL);
+	if (ret < 0) {
+		LOGE("could not open audio codec  error ret %d\n",ret);
 		return;
 	}
-
-	audio_outbuf_size = 10000; // XXX TODO
+	LOGD("AUDIO_BUFF");
+	audio_outbuf_size = 50000; // XXX TODO
 	audio_outbuf = (uint8_t *)av_malloc(audio_outbuf_size);
 
 	audio_input_frame_size = c->frame_size;
@@ -213,17 +218,21 @@ AVStream *VideoRecorderImpl::add_video_stream(enum AVCodecID codec_id)
 	AVCodecContext *c;
 	AVStream *st;
 	AVCodec* pCodecH265;
+    LOGD("find_encoder ");
 	pCodecH265 = avcodec_find_encoder(codec_id);
 	if(!pCodecH265)
 	{
 	  fprintf(stderr, "hevc codec not found\n");
 	  exit(1);
 	}
+	LOGE("format stream ");
 	st = avformat_new_stream(oc, NULL);
+
 	if (!st) {
 		LOGD("could not alloc stream\n");
 		return NULL;
 	}
+	LOGE("alloc");
 	st->codec= avcodec_alloc_context3(pCodecH265);
 	c = st->codec;
 
@@ -231,8 +240,8 @@ AVStream *VideoRecorderImpl::add_video_stream(enum AVCodecID codec_id)
 	c->bit_rate = video_bitrate;
 	c->width = video_width;
 	c->height = video_height;
-	//c->time_base.num = 15000; // w
-	//c->time_base.den = 1000;  // w
+	c->time_base.num = 1; // w
+	c->time_base.den = 3000;  // w
 	c->gop_size=25;
 	c->thread_count = 2;
 	c->pix_fmt = PIX_FMT_YUV420P;
@@ -309,27 +318,7 @@ void VideoRecorderImpl::open_video()
 		LOGE("Could not allocate picture\n");
 		return;
 	}
-/*
-	// the src AVFrame before conversion
-	tmp_picture = alloc_picture(video_pixfmt, c->width, c->height);
-	if (!tmp_picture) {
-		LOGE("Could not allocate temporary picture\n");
-		return;
-	}
-	// Instead of allocating the video frame buffer and attaching it tmp_picture, thereby incurring an unnecessary memcpy() in SupplyVideoFrame,
-	// we only allocate the tmp_picture structure and set it up with default values. tmp_picture->data[0] is then reassigned to the incoming
-	// frame data on the SupplyVideoFrame() call.
 
-	if(video_pixfmt != PIX_FMT_YUV420P) {
-		LOGE("We've hardcoded linesize in tmp_picture for PIX_FMT_YUV420P only!!\n");
-		return;
-	}
-
-	img_convert_ctx = sws_getContext(video_width, video_height, PIX_FMT_NV21, c->width, c->height, PIX_FMT_YUV420P, SWS_FAST_BILINEAR, NULL, NULL, NULL);
-	if(img_convert_ctx==NULL) {
-		LOGE("Could not initialize sws context\n");
-		return;
-	}*/
 }
 
 bool VideoRecorderImpl::Close()
@@ -337,24 +326,32 @@ bool VideoRecorderImpl::Close()
 	if(oc) {
 		// flush out delayed frames
 		AVPacket pkt;
-		int out_size;
 		av_init_packet(&pkt);
-		pkt.data=video_outbuf;
-		pkt.size=video_outbuf_size;
+		pkt.data=NULL;
+		pkt.size=0;
 		AVCodecContext *c = video_st->codec;
-		int got_packet=0;
-		while(avcodec_encode_video2(c, &pkt,NULL, &got_packet)==0) {
+		int got_packet;
+		int ret;
+		for (got_packet = 1; got_packet;) {
+			ret=avcodec_encode_video2(c, &pkt,NULL, &got_packet);
+			 if (ret < 0) {
+			            LOGD( "Error encoding frame\n");
+			            return false;
+			        }
 
-			LOGD("write!!!!!!!");
-			if (c->coded_frame->pts != AV_NOPTS_VALUE)
-				pkt.pts = av_rescale_q(c->coded_frame->pts, c->time_base, video_st->time_base);
-
-			if(av_interleaved_write_frame(oc, &pkt) != 0) {
-				LOGE("Unable to write video frame when flushing delayed frames\n");
-				return false;
-			}
-			else {
-				LOGD("wrote delayed frame of size %d\n", out_size);
+			LOGD("TAG2");
+			if(got_packet){
+				//if (c->coded_frame->pts != AV_NOPTS_VALUE)
+				//								pkt.pts = av_rescale_q(c->coded_frame->pts, c->time_base, video_st->time_base);
+				pkt.stream_index=video_st->index;
+				if(av_interleaved_write_frame(oc, &pkt)) {
+					LOGE("Unable to write video frame when flushing delayed frames\n");
+					return false;
+				}
+				else {
+					LOGD("wrote delayed frame of size %d",pkt.size);
+					av_free_packet(&pkt);
+				}
 			}
 		}
 
@@ -450,11 +447,12 @@ bool VideoRecorderImpl::Start()
 void VideoRecorderImpl::SupplyAudioSamples(const void *sampleData, unsigned long numSamples)
 {
 	// check whether there is any audio stream (hasAudio=true)
+	LOGD("Supply audio");
 	if(audio_st == NULL) {
 		LOGE("tried to supply an audio frame when no audio stream was present\n");
 		return;
 	}
-
+	LOGD("get codec");
 	AVCodecContext *c = audio_st->codec;
 
 	uint8_t *samplePtr = (uint8_t *)sampleData;		// using a byte pointer
@@ -462,6 +460,7 @@ void VideoRecorderImpl::SupplyAudioSamples(const void *sampleData, unsigned long
 	// numSamples is supplied by the codec.. should be c->frame_size (1024 for AAC)
 	// if it's more we go through it c->frame_size samples at a time
 	while(numSamples) {
+		LOGD("cal sample");
 		static AVPacket pkt;
 		av_init_packet(&pkt);	// need to init packet every time so all the values (such as pts) are re-initialized
 
@@ -475,15 +474,17 @@ void VideoRecorderImpl::SupplyAudioSamples(const void *sampleData, unsigned long
 			numSamples -= num_new_samples;
 			samplePtr += (num_new_samples * audio_sample_size * audio_channels);
 			audio_input_leftover_samples = 0;
-
 			pkt.flags |= AV_PKT_FLAG_KEY;
-			pkt.stream_index = audio_st->index;
-			pkt.data = audio_outbuf;
-			pkt.size = avcodec_encode_audio(c, audio_outbuf, audio_outbuf_size, samples);
 
+			pkt.stream_index = audio_st->index;
+			LOGD("tag1");
+			pkt.data = audio_outbuf;
+			LOGD("tag2");
+			pkt.size = avcodec_encode_audio(c, audio_outbuf, audio_outbuf_size, samples);
+			LOGD("tag3");
 			if (c->coded_frame && c->coded_frame->pts != AV_NOPTS_VALUE)
 				pkt.pts = av_rescale_q(c->coded_frame->pts, c->time_base, audio_st->time_base);
-
+			LOGD("tag3");
 			if(av_interleaved_write_frame(oc, &pkt) != 0) {
 				LOGE("Error while writing audio frame\n");
 				return;
@@ -525,26 +526,30 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 	if(timestamp_base == 0)
 		timestamp_base = timestamp;
 
-	//picture->pts = 90 * (timestamp - timestamp_base);	// assuming millisecond timestamp and 90 kHz timebase
-	LOGD("picture DATA:\n%s\n-----------------------\n",picture->data[0]);
+	//picture->pts = 200*(timestamp - timestamp_base);	// assuming millisecond timestamp and 90 kHz timebase
+
 
 	AVPacket pkt;
 	av_init_packet(&pkt);
-	pkt.data =video_outbuf;
-	pkt.size = 352*288*4;
+	pkt.data =NULL;
+	pkt.size= 0;
+
 
     int got_packet=0;
 	int ret=avcodec_encode_video2(c, &pkt, picture, &got_packet);
-	LOGD("avcodec_encode_video returned %d\n", got_packet);
-
-	if((!ret) && got_packet && c->coded_frame) {
-			if (c->coded_frame->pts != AV_NOPTS_VALUE){
-					c->coded_frame->key_frame = !!(pkt.flags & AV_PKT_FLAG_KEY);
-			}
-			if(av_interleaved_write_frame(oc, &pkt) != 0) {
+	LOGD("avcodec_encode_video returned %d, gotpacket?%d ,size%d\n", ret,got_packet,pkt.size);
+	pkt.stream_index=video_st->index;
+	if(!ret && got_packet && c->coded_frame) {
+			LOGD("TAG2");
+			//if (c->coded_frame->pts != AV_NOPTS_VALUE)
+								//pkt.pts = av_rescale_q(c->coded_frame->pts, c->time_base, video_st->time_base);
+			if(av_interleaved_write_frame(oc, &pkt)!=0 ) {
 					LOGE("Unable to write video frame\n");
 					return;
+			}else{
+				av_free_packet(&pkt);
 			}
+			LOGD("TAG3");
 	}
 }
 
@@ -553,6 +558,7 @@ VideoRecorder* VideoRecorder::New()
 	return (VideoRecorder*)(new VideoRecorderImpl);
 }
 int native_recorder_open(){
+	LOGD("native_open");
 	recorder = new VideoRecorderImpl();
 	recorder->SetAudioOptions(AudioSampleFormatS16, 2, 44100, 64000);
 	recorder->SetVideoOptions(VideoFrameFormatYUV420P, 352, 288, 400000);
@@ -560,7 +566,11 @@ int native_recorder_open(){
 	time_t now = time(0);
 	strftime(timenow, 100, "%Y-%m-%d-%H-%M-%S", localtime (&now));
 	sprintf(filename, "/sdcard/xxx-%s.flv", timenow);
-	recorder->Open(filename, false, true);
+	if (!recorder->Open(filename, false, true))
+	{
+		LOGD("fatal error: file");
+		return 0;
+	}
 	isRecording=1;
 	frameCnt=0;
 	return 0;
@@ -571,9 +581,7 @@ int native_recorder_encode_video(JNIEnv *env, jobject thiz, jbyteArray array){
 	jsize length = env->GetArrayLength(array);
 
 	LOGD("encoder get %d bytes \n", length);
-	//LOGD("encoder get %s bytes \n", data);
-	 //640*480*2
-	recorder->SupplyVideoFrame( data, length, (25 * frameCnt)+1);
+	recorder->SupplyVideoFrame( data, length,  frameCnt);
 	frameCnt++;
 	delete data;
 	return 0;
