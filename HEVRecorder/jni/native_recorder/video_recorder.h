@@ -5,9 +5,9 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
-#include <libavutil/opt.h>
+#include <libavutil/error.h>
 }
-
+#include <stdlib.h>
 enum VideoFrameFormat {
 	VideoFrameFormatYUV420P=0,
 	VideoFrameFormatNV12,
@@ -74,6 +74,8 @@ private:
 	AVPacket audio_pkt;
 
 	int16_t *samples;
+	unsigned long long samples_count;
+
 	uint8_t *audio_pkt_buf;
 	int audio_pkt_buf_size;
 	int audio_input_frame_size;
@@ -99,12 +101,11 @@ private:
 	PixelFormat video_pixfmt;
 	SwsContext *img_convert_ctx;
 
-	unsigned long timestamp_base;
+	unsigned long timestamp_start;
 
 	// common
 	AVFormatContext *oc;
 	AVDictionary* pAVDictionary = NULL;
-	uint8_t *frame_buf;
 };
 
 

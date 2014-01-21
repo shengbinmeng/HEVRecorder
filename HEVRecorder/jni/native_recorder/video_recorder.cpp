@@ -1,6 +1,5 @@
 #include <time.h>
 #include"jni_utils.h"
-
 #include "video_recorder.h"
 
 extern "C" {
@@ -8,32 +7,64 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 #include <libavutil/opt.h>
+#include <libavutil/mathematics.h>
+#include <libavutil/timestamp.h>
 }
 
 #define LOG_TAG "VideoRecorder"
 
-VideoRecorder *recorder;
-uint16_t *sound_buffer;
-uint8_t *video_buffer;
-int isRecording;
-int frameCnt;
+static int write_frame(AVFormatContext *fmt_ctx, const AVRational *time_base, AVStream *st, AVPacket *pkt)
+{
+    /* rescale output packet timestamp values from codec to stream timebase */
+    pkt->pts = av_rescale_q_rnd(pkt->pts, *time_base, st->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
+    pkt->dts = av_rescale_q_rnd(pkt->dts, *time_base, st->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
+    pkt->duration = av_rescale_q(pkt->duration, *time_base, st->time_base);
+    pkt->stream_index = st->index;
+
+    /* Write the compressed frame to the media file. */
+    return av_interleaved_write_frame(fmt_ctx, pkt);
+}
+
+// ffmpeg calls this back, used for log
+static void ffmpeg_log_callback (void* ptr, int level, const char* fmt, va_list vl) {
+
+	char s[1024];
+	vsnprintf(s, 1024, fmt, vl);
+
+	switch (level) {
+
+		case AV_LOG_PANIC:
+		case AV_LOG_FATAL:
+		case AV_LOG_ERROR:
+		case AV_LOG_WARNING:
+		LOGE("%s \n", s);
+		break;
+
+		case AV_LOG_INFO:
+		LOGI("%s \n", s);
+		break;
+
+		case AV_LOG_DEBUG:
+		//LOGD("%s \n", s);
+		break;
+	}
+}
 
 VideoRecorder::VideoRecorder()
 {
 	samples = NULL;
 	audio_pkt_buf = NULL;
 	audio_st = NULL;
-
 	audio_input_leftover_samples = 0;
 
+	video_frame = audio_frame = NULL;
 	video_pkt_buf = NULL;
 	video_st = NULL;
-
-	picture = NULL;
-	tmp_picture = NULL;
 	img_convert_ctx = NULL;
 
 	oc = NULL;
+
+	av_log_set_callback(ffmpeg_log_callback);
 }
 
 VideoRecorder::~VideoRecorder()
@@ -43,8 +74,10 @@ VideoRecorder::~VideoRecorder()
 
 bool VideoRecorder::open(const char *file, bool hasAudio)
 {
+	//fopen end
 	av_register_all();
 	avcodec_register_all();
+
 	avformat_alloc_output_context2(&oc, NULL, NULL, file);
 	if (!oc) {
 		LOGE("alloc_output_context failed \n");
@@ -56,7 +89,7 @@ bool VideoRecorder::open(const char *file, bool hasAudio)
 		audio_st = add_audio_stream(CODEC_ID_AAC);
 	}
 
-	// debug
+	// for debug
 	av_dump_format(oc, 0, file, 1);
 
 	open_video();
@@ -71,26 +104,29 @@ bool VideoRecorder::open(const char *file, bool hasAudio)
 
 	avformat_write_header(oc, &pAVDictionary);
 
+	LOGI("recoder opened \n");
 	return true;
 }
 
 AVStream *VideoRecorder::add_audio_stream(enum AVCodecID codec_id)
 {
     AVCodec *codec = avcodec_find_encoder(codec_id);
+	if (!codec) {
+		LOGE("find audio encoder failed \n");
+		return NULL;
+	}
 	AVStream *st = avformat_new_stream(oc, codec);
 	if (!st) {
-		LOGE("could not alloc stream\n");
+		LOGE("new audio stream failed \n");
 		return NULL;
 	}
 
 	AVCodecContext *c = st->codec;
-	c->codec_id = codec_id;
-	c->codec_type = AVMEDIA_TYPE_AUDIO;
 	c->sample_fmt = audio_sample_format;
 	c->bit_rate = audio_bit_rate;
 	c->sample_rate = audio_sample_rate;
 	c->channels = audio_channels;
-	c->profile = FF_PROFILE_AAC_LOW;
+	c->channel_layout = AV_CH_LAYOUT_STEREO;
 
 	if (oc->oformat->flags & AVFMT_GLOBALHEADER) {
 		c->flags |= CODEC_FLAG_GLOBAL_HEADER;
@@ -104,26 +140,24 @@ void VideoRecorder::open_audio()
 	AVCodecContext *c = audio_st->codec;
 	AVCodec *codec = avcodec_find_encoder(c->codec_id);
 	if (!codec) {
-		LOGE("audio codec not found\n");
+		LOGE("find audio encoder failed \n");
 		return;
 	}
 
 	if (avcodec_open2(c, codec, NULL) < 0) {
-		LOGE("could not open audio codec\n");
+		LOGE("open audio codec failed \n");
 		return;
 	}
 
-	// for output
 	audio_pkt_buf_size = 10000;
 	audio_pkt_buf = (uint8_t *)av_malloc(audio_pkt_buf_size);
 	if (!audio_pkt_buf) {
-		LOGE("could not allocate audio_pkt_buf \n");
+		LOGE("allocate audio_pkt_buf failed \n");
 		return;
 	}
 	audio_pkt.data = audio_pkt_buf;
 
-	// for input
-	audio_frame = avcodec_alloc_frame();
+	audio_frame = av_frame_alloc();
 	if (!audio_frame) {
 		LOGE("avcodec_alloc_frame for audio failed \n");
 		return;
@@ -138,23 +172,24 @@ AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
 {
 	AVCodec* codec = avcodec_find_encoder(codec_id);
 	if (!codec) {
-		LOGE("find encoder failed \n");
-	}
-	AVStream *st = avformat_new_stream(oc, NULL);
-	if (!st) {
-		LOGD("could not alloc stream\n");
+		LOGE("find video encoder failed \n");
 		return NULL;
 	}
-	st->codec = avcodec_alloc_context3(codec);
+
+	AVStream *st = avformat_new_stream(oc, codec);
+	if (!st) {
+		LOGD("new video stream failed \n");
+		return NULL;
+	}
 
 	AVCodecContext *c = st->codec;
 	/* put sample parameters */
 	c->bit_rate = video_bitrate;
 	c->width = video_width;
 	c->height = video_height;
-	//c->time_base.num = 15000; // w
-	//c->time_base.den = 1000;  // w
-	c->gop_size=25;
+	c->time_base.num = 1;
+	c->time_base.den = 15;
+	c->gop_size = 25;
 	c->thread_count = 2;
 	c->pix_fmt = PIX_FMT_YUV420P;
 	av_opt_set(c->priv_data, "preset", "ultrafast",0);
@@ -166,10 +201,7 @@ AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
 
 void VideoRecorder::open_video()
 {
-	AVCodec *codec;
-	AVCodecContext *c;
-
-	timestamp_base = 0;
+	timestamp_start = 0;
 
 	if (!video_st) {
 		LOGE("no video stream \n");
@@ -178,35 +210,24 @@ void VideoRecorder::open_video()
 
 	AVCodecContext *c = video_st->codec;
 	AVCodec *codec = avcodec_find_encoder(c->codec_id); //why not use c->codec ?
-	if (avcodec_open2(c, codec,NULL) < 0) {
+	if (avcodec_open2(c, codec, NULL) < 0) {
 		LOGE("avcodec_open2 failed \n");
 		return;
 	}
 
-	// for output
-	video_pkt_buf_size = c->width * c->height * 4; // We assume the encoded frame will be smaller in size than an equivalent raw frame in RGBA8888 format ... a pretty safe assumption!
+	// We assume the encoded frame will be smaller in size than an equivalent raw frame in RGBA8888 format ... a pretty safe assumption!
+	video_pkt_buf_size = c->width * c->height * 4;
 	video_pkt_buf = (uint8_t *)av_malloc(video_pkt_buf_size);
 	if (!video_pkt_buf) {
 		LOGE("could not allocate video_pkt_buf\n");
 		return;
 	}
 
-	// for input
-	video_frame = avcodec_alloc_frame();
+	video_frame = av_frame_alloc();
 	if (!video_frame) {
 		LOGE("avcodec_alloc_frame for video failed \n");
 		return;
 	}
-
-	int size = avpicture_get_size(c->pix_fmt, c->width, c->height);
-	frame_buf = (uint8_t *)av_malloc(size);
-	if (!frame_buf) {
-		av_free(frame);
-		LOGE("allocate frame buffer failed \n");
-		return;
-	}
-	avpicture_fill((AVPicture *)video_frame, frame_buf,
-			c->pix_fmt, c->width, c->height);
 }
 
 bool VideoRecorder::close()
@@ -215,18 +236,21 @@ bool VideoRecorder::close()
 		// flush out delayed frames
 		int out_size;
 		av_init_packet(&video_pkt);
+		video_pkt.data = video_pkt_buf;
+		video_pkt.size = video_pkt_buf_size;
 		AVCodecContext *c = video_st->codec;
 		int got_packet = 0;
-		while (avcodec_encode_video2(c, &video_pkt, NULL, &got_packet) == 0) {
-			if (c->coded_frame->pts != AV_NOPTS_VALUE) {
-				video_pkt.pts = av_rescale_q(c->coded_frame->pts, c->time_base, video_st->time_base);
-			}
-
-			if (av_interleaved_write_frame(oc, &video_pkt) != 0) {
-				LOGE("Unable to write video frame when flushing delayed frames \n");
-				return false;
-			} else {
-				LOGD("wrote delayed frame of size %d\n", out_size);
+		while (avcodec_encode_video2(c, &video_pkt, NULL, &got_packet) == 0 && got_packet == 1) {
+			if (got_packet) {
+				LOGD("got a video packet \n");
+				int ret = write_frame(oc, &c->time_base, video_st, &video_pkt);
+				if (ret < 0) {
+					LOGE("Error while writing video packet: %d \n", ret);
+					return false;
+				}
+				av_init_packet(&video_pkt);
+				video_pkt.data = video_pkt_buf;
+				video_pkt.size = video_pkt_buf_size;
 			}
 		}
 
@@ -272,6 +296,7 @@ bool VideoRecorder::close()
 		avio_close(oc->pb);
 		av_free(oc);
 	}
+	LOGI("recorder closed \n");
 	return true;
 }
 
@@ -310,7 +335,7 @@ bool VideoRecorder::setAudioOptions(AudioSampleFormat fmt, int channels, unsigne
 		case AudioSampleFormatFLT: audio_sample_format = AV_SAMPLE_FMT_FLT; audio_sample_size = 4; break;
 		case AudioSampleFormatDBL: audio_sample_format = AV_SAMPLE_FMT_DBL; audio_sample_size = 8; break;
 		default:
-			LOGE("Unknown sample format passed to SetAudioOptions!\n");
+			LOGE("Unknown sample format passed to setAudioOptions!\n");
 			return false;
 	}
 	audio_channels = channels;
@@ -351,25 +376,28 @@ void VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long num
 			audio_input_leftover_samples = 0;
 
 			//TODO: prepare audio frame
+			audio_frame->nb_samples = c->frame_size;
+			audio_frame->pts = av_rescale_q(samples_count, (AVRational){1, c->sample_rate}, c->time_base);
+			avcodec_fill_audio_frame(audio_frame, c->channels, c->sample_fmt,
+					(const uint8_t*)samples, audio_input_frame_size * audio_sample_size * c->channels, 0);
 
 			// decode to get packet
 			av_init_packet(&audio_pkt);
 		    int got_packet = 0;
 			int ret = avcodec_encode_audio2(c, &audio_pkt, audio_frame, &got_packet);
 			if (ret < 0) {
-				LOGE("Error encoding audio frame: %s\n", av_err2str(ret));
+				LOGE("Error encoding audio frame: %d\n", ret);
 				return;
 			}
 			if (got_packet) {
-				//TODO: time stamp
-
-				audio_pkt.stream_index = audio_st->index;
-				ret = av_interleaved_write_frame(oc, &audio_pkt);
+				LOGD("got an audio packet \n");
+				ret = write_frame(oc, &c->time_base, audio_st, &audio_pkt);
 				if (ret < 0) {
-					LOGE("Error while writing audio packet: %s \n", av_err2str(ret));
+					LOGE("Error while writing audio packet: %d \n", ret);
 					return;
 				}
 			}
+			samples_count += audio_frame->nb_samples;
 		} else {
 			// if we didn't have enough samples for a frame, we copy over however many we had and update audio_input_leftover_samples
 			int num_new_samples = c->frame_size - audio_input_leftover_samples;
@@ -389,28 +417,38 @@ void VideoRecorder::supplyVideoFrame(const void *frameData, unsigned long numByt
 {
 	AVCodecContext *c = video_st->codec;
 
-	//TODO: prepare video frame
-	memcpy(video_frame->data[0], frameData, numBytes);
-	if (timestamp_base == 0) {
-		timestamp_base = timestamp;
+	int width = c->width, height = c->height;
+	uint8_t* data = (uint8_t*) frameData;
+	int stride_y = (width % 16 == 0 ? width/16 : width/16 + 1)*16;
+	int stride_uv = (width/2 % 16 == 0 ? width/2 / 16 : width/2 / 16 + 1)*16;
+	// Android's YV12 format stores YUV as YCrCb
+	video_frame->data[0] = data;
+	video_frame->data[2] = (uint8_t*)(data + height * stride_y);
+	video_frame->data[1] = (uint8_t*)(data + height * stride_y + height/2 * stride_uv);
+	video_frame->linesize[0] = stride_y;
+	video_frame->linesize[1] = video_frame->linesize[2] = stride_uv;
+
+	if (timestamp_start == 0) {
+		timestamp_start = timestamp;
 	}
-	video_frame->pts = 90 * (timestamp - timestamp_base);	// assuming millisecond timestamp and 90 kHz timebase
+
+	video_frame->pts = (timestamp - timestamp_start);
 
 	// decode to get packet
 	av_init_packet(&video_pkt);
+	video_pkt.data = video_pkt_buf;
+	video_pkt.size = video_pkt_buf_size;
     int got_packet = 0;
 	int ret = avcodec_encode_video2(c, &video_pkt, video_frame, &got_packet);
 	if (ret < 0) {
-		LOGE("Error encoding video frame: %s \n", av_err2str(ret));
+		LOGE("Error encoding video frame: %d \n", ret);
 		return;
 	}
-	if (got_packet && video_pkt.size) {
-		//TODO: time stamp
-
-		video_pkt.stream_index = video_st->index;
-		ret = av_interleaved_write_frame(oc, &video_pkt);
+	if (got_packet) {
+		LOGD("got a video packet \n");
+		ret = write_frame(oc, &c->time_base, video_st, &video_pkt);
 		if (ret < 0) {
-			LOGE("Error while writing video packet: &s \n", av_err2str(ret));
+			LOGE("Error while writing video packet: %d \n", ret);
 			return;
 		}
 	}

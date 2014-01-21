@@ -1,8 +1,12 @@
-#include"jni_utils.h"
+#include "jni_utils.h"
+#include "video_recorder.h"
 
 #define LOG_TAG "native_recorder"
 
+static VideoRecorder *recorder = NULL;
+static uint16_t *sound_buffer;
 static int frameCount = 0;
+
 
 int native_recorder_open()
 {
@@ -24,7 +28,7 @@ int native_recorder_encode_video(JNIEnv *env, jobject thiz, jbyteArray array)
 	jsize length = env->GetArrayLength(array);
 
 	LOGD("encoder get %d bytes \n", length);
-	recorder->supplyVideoFrame(data, length, (25 * frameCount)+1);
+	recorder->supplyVideoFrame(data, length, frameCount);
 	frameCount++;
 	delete data;
 	return 0;

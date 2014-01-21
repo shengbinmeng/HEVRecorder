@@ -21,24 +21,23 @@ public class RecordingActivity extends Activity {
     private Camera mCamera;
     private CameraPreview mPreview;
     boolean mRecording = false;
+    
     //---------------------audio record------------
-    int audio_sample_format=2;
-    int audio_sample_size=2;
-    int audio_channels = AudioFormat.CHANNEL_IN_MONO;
+    int audio_sample_format = 2;
+    int audio_sample_size = 2;
+    int audio_channels = AudioFormat.CHANNEL_IN_STEREO;
     int audio_bit_rate = 64000;
     int audio_frequency = 44100;
     int recBufSize;
-    int audioEncoding=AudioFormat.ENCODING_PCM_16BIT;
+    int audioEncoding = AudioFormat.ENCODING_PCM_16BIT;
     AudioRecord audioRecord;  
     class RecordPlayThread extends Thread {  
         public void run() {  
             try {  
                 byte[] buffer = new byte[recBufSize];  
                 audioRecord.startRecording();
-                
-                  
+
                 while (mRecording) {  
-                    
                     int bufferReadResult = audioRecord.read(buffer, 0,  
                             recBufSize); 
                     if(bufferReadResult==0){
@@ -104,7 +103,8 @@ public class RecordingActivity extends Activity {
 			@Override
 			public void onClick(View arg0) {
 				// TODO Auto-generated method stub 
-               // new RecordPlayThread().start();
+				//new RecordPlayThread().start();
+				
 				if (mRecording) {
 					// close the encoder
 					native_recorder_close();
