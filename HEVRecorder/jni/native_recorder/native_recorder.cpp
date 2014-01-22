@@ -8,16 +8,28 @@ static uint16_t *sound_buffer;
 static int frameCount = 0;
 
 
-int native_recorder_open()
+int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height)
 {
 	recorder = new VideoRecorder();
-	recorder->setAudioOptions(AudioSampleFormatS16, 2, 44100, 64000);
-	recorder->setVideoOptions(VideoFrameFormatYUV420P, 352, 288, 400000);
+	int ret = recorder->setAudioOptions(AudioSampleFormatS16, 2, 44100, 64000);
+	if (ret < 0) {
+		LOGE("set audio options failed \n");
+		return ret;
+	}
+	ret = recorder->setVideoOptions(VideoFrameFormatYUV420P, width, height, 400000);
+	if (ret < 0) {
+		LOGE("set video options failed \n");
+		return ret;
+	}
 	char filename[512], timenow[100];
 	time_t now = time(0);
 	strftime(timenow, 100, "%Y-%m-%d-%H-%M-%S", localtime (&now));
 	sprintf(filename, "/sdcard/xxx-%s.flv", timenow);
-	recorder->open(filename, false);
+	ret = recorder->open(filename, false);
+	if (ret < 0) {
+		LOGE("open recorder failed \n");
+		return ret;
+	}
 	frameCount = 0;
 	return 0;
 }
@@ -26,34 +38,33 @@ int native_recorder_encode_video(JNIEnv *env, jobject thiz, jbyteArray array)
 {
 	jbyte* data = env->GetByteArrayElements(array, NULL);
 	jsize length = env->GetArrayLength(array);
-
-	LOGD("encoder get %d bytes \n", length);
-	recorder->supplyVideoFrame(data, length, frameCount);
+	int ret = recorder->supplyVideoFrame(data, length, frameCount);
 	frameCount++;
 	delete data;
-	return 0;
+	return ret;
 }
 
-int native_recorder_encode_sound(JNIEnv *env, jobject thiz, jbyteArray array)
+int native_recorder_encode_audio(JNIEnv *env, jobject thiz, jbyteArray array)
 {
 	jbyte* data = env->GetByteArrayElements(array, NULL);
 	jsize length = env->GetArrayLength(array);
-	recorder->supplyAudioSamples(sound_buffer, length);
-	return 0;
+	return recorder->supplyAudioSamples(sound_buffer, length);
 }
 
 int native_recorder_close()
 {
-	recorder->close();
+	int ret = recorder->close();
+	if (ret < 0) {
+		LOGE("close recorder failed \n");
+	}
 	delete recorder;
-	delete sound_buffer;
-	return 0;
+	return ret;
 }
 
 static JNINativeMethod gMethods[] = {
-    {"native_recorder_open", "()I", (void *)native_recorder_open},
+    {"native_recorder_open", "(II)I", (void *)native_recorder_open},
     {"native_recorder_encode_video", "([B)I", (void *)native_recorder_encode_video},
-    {"native_recorder_encode_sound", "([B)I", (void *)native_recorder_encode_sound},
+    {"native_recorder_encode_audio", "([B)I", (void *)native_recorder_encode_audio},
     {"native_recorder_close", "()I", (void *)native_recorder_close},
 };
 

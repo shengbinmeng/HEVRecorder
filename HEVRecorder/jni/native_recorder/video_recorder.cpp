@@ -72,16 +72,17 @@ VideoRecorder::~VideoRecorder()
 
 }
 
-bool VideoRecorder::open(const char *file, bool hasAudio)
+int VideoRecorder::open(const char *file, bool hasAudio)
 {
-	//fopen end
+	LOGI("opening recorder \n");
+
 	av_register_all();
 	avcodec_register_all();
 
-	avformat_alloc_output_context2(&oc, NULL, NULL, file);
+	int ret = avformat_alloc_output_context2(&oc, NULL, NULL, file);
 	if (!oc) {
 		LOGE("alloc_output_context failed \n");
-		return false;
+		return ret;
 	}
 
 	video_st = add_video_stream(AV_CODEC_ID_HEVC);
@@ -92,20 +93,33 @@ bool VideoRecorder::open(const char *file, bool hasAudio)
 	// for debug
 	av_dump_format(oc, 0, file, 1);
 
-	open_video();
+	ret = open_video();
+	if (ret < 0) {
+		LOGE("open video failed \n");
+		return ret;
+	}
 	if (hasAudio) {
-		open_audio();
+		ret = open_audio();
+		if (ret < 0) {
+			LOGE("open audio failed \n");
+			return ret;
+		}
 	}
 
-	if (avio_open(&oc->pb, file, AVIO_FLAG_WRITE) < 0) {
+	ret = avio_open(&oc->pb, file, AVIO_FLAG_WRITE);
+	if (ret < 0) {
 		LOGE("open file failed: %s \n", file);
-		return false;
+		return ret;
 	}
 
-	avformat_write_header(oc, &pAVDictionary);
+	ret = avformat_write_header(oc, &pAVDictionary);
+	if (ret < 0) {
+		LOGE("write format header failed \n");
+		return ret;
+	}
 
-	LOGI("recoder opened \n");
-	return true;
+	LOGI("recorder open success \n");
+	return 0;
 }
 
 AVStream *VideoRecorder::add_audio_stream(enum AVCodecID codec_id)
@@ -132,40 +146,50 @@ AVStream *VideoRecorder::add_audio_stream(enum AVCodecID codec_id)
 		c->flags |= CODEC_FLAG_GLOBAL_HEADER;
 	}
 
+	LOGI("audio stream added \n");
 	return st;
 }
 
-void VideoRecorder::open_audio()
+int VideoRecorder::open_audio()
 {
+	if (!audio_st) {
+		LOGE("no audio stream \n");
+		return -1;
+	}
+
 	AVCodecContext *c = audio_st->codec;
 	AVCodec *codec = avcodec_find_encoder(c->codec_id);
 	if (!codec) {
 		LOGE("find audio encoder failed \n");
-		return;
+		return -1;
 	}
 
-	if (avcodec_open2(c, codec, NULL) < 0) {
+	int ret = avcodec_open2(c, codec, NULL);
+	if (ret < 0) {
 		LOGE("open audio codec failed \n");
-		return;
+		return ret;
 	}
 
 	audio_pkt_buf_size = 10000;
 	audio_pkt_buf = (uint8_t *)av_malloc(audio_pkt_buf_size);
 	if (!audio_pkt_buf) {
 		LOGE("allocate audio_pkt_buf failed \n");
-		return;
+		return -1;
 	}
 	audio_pkt.data = audio_pkt_buf;
 
 	audio_frame = av_frame_alloc();
 	if (!audio_frame) {
 		LOGE("avcodec_alloc_frame for audio failed \n");
-		return;
+		return -1;
 	}
 	audio_input_frame_size = c->frame_size;
 	samples = (int16_t *)av_malloc(audio_input_frame_size * audio_sample_size * c->channels);
 
 	audio_input_leftover_samples = 0;
+
+	LOGI("audio codec opened \n");
+	return 0;
 }
 
 AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
@@ -196,23 +220,24 @@ AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
 	av_opt_set(c->priv_data, "wpp", "4",0);
 	av_opt_set(c->priv_data, "disable_sei", "1",0);
 	av_opt_set(c->priv_data, "HM_compatibility", "12",0);
+
+	LOGI("video stream added \n");
 	return st;
 }
 
-void VideoRecorder::open_video()
+int VideoRecorder::open_video()
 {
-	timestamp_start = 0;
-
 	if (!video_st) {
 		LOGE("no video stream \n");
-		return;
+		return -1;
 	}
 
 	AVCodecContext *c = video_st->codec;
 	AVCodec *codec = avcodec_find_encoder(c->codec_id); //why not use c->codec ?
-	if (avcodec_open2(c, codec, NULL) < 0) {
+	int ret = avcodec_open2(c, codec, NULL);
+	if (ret < 0) {
 		LOGE("avcodec_open2 failed \n");
-		return;
+		return ret;
 	}
 
 	// We assume the encoded frame will be smaller in size than an equivalent raw frame in RGBA8888 format ... a pretty safe assumption!
@@ -220,20 +245,26 @@ void VideoRecorder::open_video()
 	video_pkt_buf = (uint8_t *)av_malloc(video_pkt_buf_size);
 	if (!video_pkt_buf) {
 		LOGE("could not allocate video_pkt_buf\n");
-		return;
+		return -1;
 	}
 
 	video_frame = av_frame_alloc();
 	if (!video_frame) {
 		LOGE("avcodec_alloc_frame for video failed \n");
-		return;
+		return -1;
 	}
+
+	timestamp_start = 0;
+
+	LOGI("video codec opened \n");
+	return 0;
 }
 
-bool VideoRecorder::close()
+int VideoRecorder::close()
 {
 	if (oc) {
 		// flush out delayed frames
+		LOGI("flush out delayed frames \n");
 		int out_size;
 		av_init_packet(&video_pkt);
 		video_pkt.data = video_pkt_buf;
@@ -246,7 +277,7 @@ bool VideoRecorder::close()
 				int ret = write_frame(oc, &c->time_base, video_st, &video_pkt);
 				if (ret < 0) {
 					LOGE("Error while writing video packet: %d \n", ret);
-					return false;
+					return ret;
 				}
 				av_init_packet(&video_pkt);
 				video_pkt.data = video_pkt_buf;
@@ -254,6 +285,7 @@ bool VideoRecorder::close()
 			}
 		}
 
+		LOGI("write trailer \n");
 		av_write_trailer(oc);
 	}
 
@@ -297,10 +329,10 @@ bool VideoRecorder::close()
 		av_free(oc);
 	}
 	LOGI("recorder closed \n");
-	return true;
+	return 0;
 }
 
-bool VideoRecorder::setVideoOptions(VideoFrameFormat fmt, int width, int height, unsigned long bitrate)
+int VideoRecorder::setVideoOptions(VideoFrameFormat fmt, int width, int height, unsigned long bitrate)
 {
 	switch (fmt) {
 		case VideoFrameFormatYUV420P: video_pixfmt = PIX_FMT_YUV420P; break;
@@ -318,15 +350,15 @@ bool VideoRecorder::setVideoOptions(VideoFrameFormat fmt, int width, int height,
 		case VideoFrameFormatBGR565BE: video_pixfmt = PIX_FMT_BGR565BE; break;
 		default:
 			LOGE("Unknown frame format passed to SetVideoOptions!\n");
-			return false;
+			return -1;
 	}
 	video_width = width;
 	video_height = height;
 	video_bitrate = bitrate;
-	return true;
+	return 0;
 }
 
-bool VideoRecorder::setAudioOptions(AudioSampleFormat fmt, int channels, unsigned long samplerate, unsigned long bitrate)
+int VideoRecorder::setAudioOptions(AudioSampleFormat fmt, int channels, unsigned long samplerate, unsigned long bitrate)
 {
 	switch (fmt) {
 		case AudioSampleFormatU8: audio_sample_format = AV_SAMPLE_FMT_U8; audio_sample_size = 1; break;
@@ -336,65 +368,66 @@ bool VideoRecorder::setAudioOptions(AudioSampleFormat fmt, int channels, unsigne
 		case AudioSampleFormatDBL: audio_sample_format = AV_SAMPLE_FMT_DBL; audio_sample_size = 8; break;
 		default:
 			LOGE("Unknown sample format passed to setAudioOptions!\n");
-			return false;
+			return -1;
 	}
 	audio_channels = channels;
 	audio_bit_rate = bitrate;
 	audio_sample_rate = samplerate;
-	return true;
+	return 0;
 }
 
-bool VideoRecorder::start()
+int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numBytes)
 {
-	return true;
-}
-
-void VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numSamples)
-{
-	// check whether there is any audio stream (hasAudio=true)
+	// check whether there is any audio stream
 	if (audio_st == NULL) {
-		LOGE("tried to supply an audio frame when no audio stream was present\n");
-		return;
+		LOGE("tried to supply an audio frame when no audio stream was present \n");
+		return -1;
 	}
+
+	unsigned long numSamples = numBytes / audio_sample_size;
+	LOGD("supply audio data: %lu bytes, %lu samples \n", numBytes, numSamples);
+
 	AVCodecContext *c = audio_st->codec;
-	uint8_t *samplePtr = (uint8_t *)sampleData;
+	uint8_t *data = (uint8_t *)sampleData;
 
 	// numSamples is supplied by the codec.. should be c->frame_size (1024 for AAC)
 	// if it's more we go through it c->frame_size samples at a time
 	while (numSamples) {
-		// need to init packet every time so all the values (such as pts) are re-initialized
-
 		// if we have enough samples for a frame, we write out c->frame_size number of samples (ie: one frame) to the output context
 		if (numSamples + audio_input_leftover_samples >= c->frame_size) {
 			// audio_input_leftover_samples contains the number of samples already in our "samples" array, left over from last time
 			// we copy the remaining samples to fill up the frame to the complete frame size
 			int num_new_samples = c->frame_size - audio_input_leftover_samples;
 
-			memcpy((uint8_t *)samples + (audio_input_leftover_samples * audio_sample_size * audio_channels), samplePtr, num_new_samples * audio_sample_size * audio_channels);
+			memcpy((uint8_t *)samples + (audio_input_leftover_samples * audio_sample_size * audio_channels), data, num_new_samples * audio_sample_size * audio_channels);
 			numSamples -= num_new_samples;
-			samplePtr += (num_new_samples * audio_sample_size * audio_channels);
+			data += (num_new_samples * audio_sample_size * audio_channels);
 			audio_input_leftover_samples = 0;
 
 			//TODO: prepare audio frame
 			audio_frame->nb_samples = c->frame_size;
 			audio_frame->pts = av_rescale_q(samples_count, (AVRational){1, c->sample_rate}, c->time_base);
+
 			avcodec_fill_audio_frame(audio_frame, c->channels, c->sample_fmt,
 					(const uint8_t*)samples, audio_input_frame_size * audio_sample_size * c->channels, 0);
 
 			// decode to get packet
+			// we need to initialize packet every time so all the values (such as pts) are re-initialized
 			av_init_packet(&audio_pkt);
+			audio_pkt.data = audio_pkt_buf;
+			audio_pkt.size = audio_pkt_buf_size;
 		    int got_packet = 0;
 			int ret = avcodec_encode_audio2(c, &audio_pkt, audio_frame, &got_packet);
 			if (ret < 0) {
 				LOGE("Error encoding audio frame: %d\n", ret);
-				return;
+				return ret;
 			}
 			if (got_packet) {
 				LOGD("got an audio packet \n");
 				ret = write_frame(oc, &c->time_base, audio_st, &audio_pkt);
 				if (ret < 0) {
 					LOGE("Error while writing audio packet: %d \n", ret);
-					return;
+					return ret;
 				}
 			}
 			samples_count += audio_frame->nb_samples;
@@ -405,19 +438,24 @@ void VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long num
 				num_new_samples = numSamples;
 			}
 
-			memcpy((uint8_t *)samples + (audio_input_leftover_samples * audio_sample_size * audio_channels), samplePtr, num_new_samples * audio_sample_size * audio_channels);
+			memcpy((uint8_t *)samples + (audio_input_leftover_samples * audio_sample_size * audio_channels), data, num_new_samples * audio_sample_size * audio_channels);
 			numSamples -= num_new_samples;
-			samplePtr += (num_new_samples * audio_sample_size * audio_channels);
+			data += (num_new_samples * audio_sample_size * audio_channels);
 			audio_input_leftover_samples += num_new_samples;
 		}
 	}
+
+	return 0;
 }
 
-void VideoRecorder::supplyVideoFrame(const void *frameData, unsigned long numBytes, unsigned long timestamp)
+int VideoRecorder::supplyVideoFrame(const void *frameData, unsigned long numBytes, unsigned long timestamp)
 {
-	AVCodecContext *c = video_st->codec;
+	LOGD("supply video data: %lu bytes \n",numBytes);
 
+	AVCodecContext *c = video_st->codec;
 	int width = c->width, height = c->height;
+
+	// prepare the frame
 	uint8_t* data = (uint8_t*) frameData;
 	int stride_y = (width % 16 == 0 ? width/16 : width/16 + 1)*16;
 	int stride_uv = (width/2 % 16 == 0 ? width/2 / 16 : width/2 / 16 + 1)*16;
@@ -431,7 +469,6 @@ void VideoRecorder::supplyVideoFrame(const void *frameData, unsigned long numByt
 	if (timestamp_start == 0) {
 		timestamp_start = timestamp;
 	}
-
 	video_frame->pts = (timestamp - timestamp_start);
 
 	// decode to get packet
@@ -442,15 +479,17 @@ void VideoRecorder::supplyVideoFrame(const void *frameData, unsigned long numByt
 	int ret = avcodec_encode_video2(c, &video_pkt, video_frame, &got_packet);
 	if (ret < 0) {
 		LOGE("Error encoding video frame: %d \n", ret);
-		return;
+		return ret;
 	}
 	if (got_packet) {
 		LOGD("got a video packet \n");
 		ret = write_frame(oc, &c->time_base, video_st, &video_pkt);
 		if (ret < 0) {
 			LOGE("Error while writing video packet: %d \n", ret);
-			return;
+			return ret;
 		}
 	}
+
+	return 0;
 }
 

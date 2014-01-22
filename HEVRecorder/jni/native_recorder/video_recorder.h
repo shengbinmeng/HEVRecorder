@@ -7,7 +7,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 #include <libavutil/error.h>
 }
-#include <stdlib.h>
+
 enum VideoFrameFormat {
 	VideoFrameFormatYUV420P=0,
 	VideoFrameFormatNV12,
@@ -42,32 +42,20 @@ public:
 	// Return true on success, false on failure
 
 	// Call these first
-	bool setVideoOptions(VideoFrameFormat fmt, int width, int height, unsigned long bitrate);
-	bool setAudioOptions(AudioSampleFormat fmt, int channels, unsigned long samplerate, unsigned long bitrate);
+	int setVideoOptions(VideoFrameFormat fmt, int width, int height, unsigned long bitrate);
+	int setAudioOptions(AudioSampleFormat fmt, int channels, unsigned long samplerate, unsigned long bitrate);
 
-	bool open(const char* file, bool hasAudio);
+	int open(const char* file, bool hasAudio);
 
-	bool close();
-
-	// After this succeeds, you can call SupplyVideoFrame and SupplyAudioSamples
-	bool start();
+	int close();
 
 	// Supply a video frame
-	void supplyVideoFrame(const void* frame, unsigned long numBytes, unsigned long timestamp);
+	int supplyVideoFrame(const void* frame, unsigned long numBytes, unsigned long timestamp);
 
 	// Supply audio samples
-	void supplyAudioSamples(const void* samples, unsigned long numSamples);
+	int supplyAudioSamples(const void* samples, unsigned long numSamples);
 
 private:
-	AVStream *add_audio_stream(enum AVCodecID codec_id);
-	void open_audio();
-	void write_audio_frame(AVStream *st);
-
-	AVStream *add_video_stream(enum AVCodecID codec_id);
-	AVFrame *alloc_frame(enum PixelFormat pix_fmt, int width, int height);
-	void open_video();
-	void write_video_frame(AVStream *st);
-
 	// audio related vars
 	AVStream *audio_st;
 	AVFrame *audio_frame;
@@ -106,6 +94,13 @@ private:
 	// common
 	AVFormatContext *oc;
 	AVDictionary* pAVDictionary = NULL;
+
+	AVStream *add_audio_stream(enum AVCodecID codec_id);
+	int open_audio();
+
+	AVStream *add_video_stream(enum AVCodecID codec_id);
+	AVFrame *alloc_frame(enum PixelFormat pix_fmt, int width, int height);
+	int open_video();
 };
 
 

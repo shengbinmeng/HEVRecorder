@@ -3,6 +3,7 @@ package pku.shengbin.hevrecorder;
 import android.app.Activity;
 import android.hardware.Camera;
 import android.hardware.Camera.PreviewCallback;
+import android.hardware.Camera.Size;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -14,6 +15,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
+import android.widget.Toast;
 
 public class RecordingActivity extends Activity {
 
@@ -22,45 +24,34 @@ public class RecordingActivity extends Activity {
     private CameraPreview mPreview;
     boolean mRecording = false;
     
-    //---------------------audio record------------
-    int audio_sample_format = 2;
-    int audio_sample_size = 2;
-    int audio_channels = AudioFormat.CHANNEL_IN_STEREO;
-    int audio_bit_rate = 64000;
-    int audio_frequency = 44100;
-    int recBufSize;
-    int audioEncoding = AudioFormat.ENCODING_PCM_16BIT;
-    AudioRecord audioRecord;  
-    class RecordPlayThread extends Thread {  
+    AudioRecord mAudioRecord; 
+    byte[] mAudioBuffer;
+    Thread mAudioThread;
+    
+    class AudioRecordThread extends Thread {  
         public void run() {  
             try {  
-                byte[] buffer = new byte[recBufSize];  
-                audioRecord.startRecording();
+                mAudioRecord.startRecording();
 
                 while (mRecording) {  
-                    int bufferReadResult = audioRecord.read(buffer, 0,  
-                            recBufSize); 
-                    if(bufferReadResult==0){
-                    	return ;
+                    int bytesRead = mAudioRecord.read(mAudioBuffer, 0,  
+                    		mAudioBuffer.length); 
+                    if (bytesRead < 0) {
+                    	break;
                     }
-                    native_recorder_encode_sound(buffer); 
-                }  
-                audioRecord.stop();  
-            } catch (Throwable t) {  
+                    native_recorder_encode_audio(mAudioBuffer);
+                }
                 
-            }  
+                mAudioRecord.stop();
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }  
     };  
-    //---------------------audio record end--------------
-    
-    // the open function may pass some parameters, e.g. width and height
-    /*
-    private native int native_encoder_open();
-    private native int native_encoder_encode(byte[] data);
-    private native int native_encoder_close();
-    */
-    private native int native_recorder_open();
-    private native int native_recorder_encode_sound(byte[] data);
+
+    private native int native_recorder_open(int width, int height);
+    private native int native_recorder_encode_audio(byte[] data);
     private native int native_recorder_encode_video(byte[] data);
     private native int native_recorder_close();
     static {
@@ -78,12 +69,18 @@ public class RecordingActivity extends Activity {
     	getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
     	
         setContentView(R.layout.activity_recording);
-		//-----------audio recorder---------------
-        recBufSize = AudioRecord.getMinBufferSize(audio_frequency,  
+        
+        // audio
+        int audio_frequency = 44100;        
+        int audio_channels = AudioFormat.CHANNEL_IN_STEREO;
+        int audioEncoding = AudioFormat.ENCODING_PCM_16BIT;
+        int bufferSize = AudioRecord.getMinBufferSize(audio_frequency,  
                audio_channels, audioEncoding);  
-        audioRecord=new AudioRecord(MediaRecorder.AudioSource.MIC, audio_frequency,  
-                audio_channels, audioEncoding, recBufSize);  
-        //-----------audio rd end-----------------*/
+        mAudioBuffer = new byte[bufferSize];
+        mAudioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC, audio_frequency,  
+                audio_channels, audioEncoding, bufferSize);  
+        
+        // video
         // Create an instance of Camera
         mCamera = getCameraInstance();
         // Create our Preview view and set it as the content of our activity.
@@ -91,58 +88,81 @@ public class RecordingActivity extends Activity {
         FrameLayout preview = (FrameLayout) findViewById(R.id.camera_preview);
         preview.addView(mPreview);
         
+        mPreview.setDisplaySize();
+        
+        
+        // controls
         RelativeLayout layoutText = (RelativeLayout) findViewById(R.id.layout_text);
         layoutText.bringToFront();
- 
         RelativeLayout layoutButton = (RelativeLayout) findViewById(R.id.layout_button);
         layoutButton.bringToFront();
         Button buttonControl = (Button) findViewById(R.id.button_control);
-        
         buttonControl.setOnClickListener(new View.OnClickListener(){
-     
 			@Override
 			public void onClick(View arg0) {
-				// TODO Auto-generated method stub 
-				//new RecordPlayThread().start();
-				
+				// TODO Auto-generated method stub 				
 				if (mRecording) {
-					// close the encoder
-					native_recorder_close();
+					mRecording = false;
+					
+					// wait the audio thread to end before close native recorder
+					try {
+						mAudioThread.join();
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					
+					// close the recorder
+					int ret = native_recorder_close();
+					if (ret < 0) {
+						Toast.makeText(RecordingActivity.this, "Close the recorder failed. The recorded file may be wrong.", Toast.LENGTH_SHORT).show();
+					}
 					mCamera.setPreviewCallback(null);
 					
-					mRecording = false;
 					((Button)arg0).setText(R.string.start);
+
 				} else {
-					// prepare the encoder
-					native_recorder_open();
+					// open the recorder
+			    	Camera.Parameters p = mCamera.getParameters();
+			    	final Size s = p.getPreviewSize();
+			    	
+					int ret = native_recorder_open(s.width, s.height);
+					if (ret < 0) {
+						Toast.makeText(RecordingActivity.this, "Open recorder failed!", Toast.LENGTH_SHORT).show();
+						return;
+					}
 					
-					// encode every frame
+					// encode every video frame
 					mCamera.setPreviewCallback(new PreviewCallback() {
 						@Override
 						public void onPreviewFrame(byte[] data, Camera cam) {
-							long beginTime = System.currentTimeMillis();
+							int width = s.width, height = s.height;
+							int stride_y = (width % 16 == 0 ? width/16 : width/16 + 1)*16;
+							int stride_uv = (width/2 % 16 == 0 ? width/2/16 : width/2/16 + 1)*16;
+							Log.d(TAG, "preview a frame: " + data.length + ", " + (stride_y*height + 2*stride_uv*height/2) + ", " + data[0] + data[1] + data[2] + data[3] + data[4]);
 							
+							long beginTime = System.currentTimeMillis();
 							native_recorder_encode_video(data);
 							long endTime = System.currentTimeMillis();
-	                        Log.d(TAG, "time cost:" + (endTime - beginTime));
+	                        Log.d(TAG, "encoding time: " + (endTime - beginTime) + " ms");
 						}
 						
 					});
 					
 					mRecording = true;
+					
+					// start audio recording
+					mAudioThread = new AudioRecordThread();
+					mAudioThread.start();
+					
 					((Button)arg0).setText(R.string.stop);
 				}
 			}
         	
         });
         
-        mPreview.setDisplaySize();
     }
     
-	private int plus(int i, int j) {
-		// TODO Auto-generated method stub
-		return 0;
-	}
 	// attempt to get a Camera instance
     public static Camera getCameraInstance() {
         Camera c = null;
