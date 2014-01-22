@@ -139,7 +139,7 @@ public class RecordingActivity extends Activity {
 							int width = s.width, height = s.height;
 							int stride_y = (width % 16 == 0 ? width/16 : width/16 + 1)*16;
 							int stride_uv = (width/2 % 16 == 0 ? width/2/16 : width/2/16 + 1)*16;
-							Log.d(TAG, "preview a frame: " + data.length + ", " + (stride_y*height + 2*stride_uv*height/2) + ", " + data[0] + data[1] + data[2] + data[3] + data[4]);
+							//Log.d(TAG, "preview a frame: " + data.length + ", " + (stride_y*height + 2*stride_uv*height/2) + ", " + data[0] + data[1] + data[2] + data[3] + data[4]);
 							
 							long beginTime = System.currentTimeMillis();
 							native_recorder_encode_video(data);

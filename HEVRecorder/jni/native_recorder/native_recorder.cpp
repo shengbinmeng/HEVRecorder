@@ -25,7 +25,7 @@ int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height)
 	time_t now = time(0);
 	strftime(timenow, 100, "%Y-%m-%d-%H-%M-%S", localtime (&now));
 	sprintf(filename, "/sdcard/xxx-%s.flv", timenow);
-	ret = recorder->open(filename, false);
+	ret = recorder->open(filename, true);
 	if (ret < 0) {
 		LOGE("open recorder failed \n");
 		return ret;
@@ -48,7 +48,9 @@ int native_recorder_encode_audio(JNIEnv *env, jobject thiz, jbyteArray array)
 {
 	jbyte* data = env->GetByteArrayElements(array, NULL);
 	jsize length = env->GetArrayLength(array);
-	return recorder->supplyAudioSamples(sound_buffer, length);
+	int ret = recorder->supplyAudioSamples(data, length);
+	delete data;
+	return ret;
 }
 
 int native_recorder_close()

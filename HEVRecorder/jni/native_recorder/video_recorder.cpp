@@ -5,7 +5,7 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
 #include <libavutil/opt.h>
 #include <libavutil/mathematics.h>
 #include <libavutil/timestamp.h>
@@ -53,14 +53,15 @@ static void ffmpeg_log_callback (void* ptr, int level, const char* fmt, va_list 
 VideoRecorder::VideoRecorder()
 {
 	samples = NULL;
+	dst_samples = NULL;
 	audio_pkt_buf = NULL;
 	audio_st = NULL;
 	audio_input_leftover_samples = 0;
+	swr_ctx = NULL;
 
 	video_frame = audio_frame = NULL;
 	video_pkt_buf = NULL;
 	video_st = NULL;
-	img_convert_ctx = NULL;
 
 	oc = NULL;
 
@@ -87,7 +88,7 @@ int VideoRecorder::open(const char *file, bool hasAudio)
 
 	video_st = add_video_stream(AV_CODEC_ID_HEVC);
 	if (hasAudio) {
-		audio_st = add_audio_stream(CODEC_ID_AAC);
+		audio_st = add_audio_stream(AV_CODEC_ID_AAC);
 	}
 
 	// for debug
@@ -140,7 +141,18 @@ AVStream *VideoRecorder::add_audio_stream(enum AVCodecID codec_id)
 	c->bit_rate = audio_bit_rate;
 	c->sample_rate = audio_sample_rate;
 	c->channels = audio_channels;
-	c->channel_layout = AV_CH_LAYOUT_STEREO;
+	if (c->channels == 2) {
+		c->channel_layout = AV_CH_LAYOUT_STEREO;
+	}
+	if (codec_id == AV_CODEC_ID_AAC) {
+		LOGI("prepare for AAC audio encoder \n");
+
+		// AAC encoder is experimental, so we need to set this
+		c->strict_std_compliance = -2;
+
+		// AAC encoder only support float format
+		c->sample_fmt = AV_SAMPLE_FMT_FLTP;
+	}
 
 	if (oc->oformat->flags & AVFMT_GLOBALHEADER) {
 		c->flags |= CODEC_FLAG_GLOBAL_HEADER;
@@ -170,23 +182,58 @@ int VideoRecorder::open_audio()
 		return ret;
 	}
 
-	audio_pkt_buf_size = 10000;
+	audio_pkt_buf_size = 100000;
 	audio_pkt_buf = (uint8_t *)av_malloc(audio_pkt_buf_size);
 	if (!audio_pkt_buf) {
 		LOGE("allocate audio_pkt_buf failed \n");
 		return -1;
 	}
-	audio_pkt.data = audio_pkt_buf;
 
 	audio_frame = av_frame_alloc();
 	if (!audio_frame) {
 		LOGE("avcodec_alloc_frame for audio failed \n");
 		return -1;
 	}
-	audio_input_frame_size = c->frame_size;
-	samples = (int16_t *)av_malloc(audio_input_frame_size * audio_sample_size * c->channels);
 
+	audio_input_frame_size = c->codec->capabilities & CODEC_CAP_VARIABLE_FRAME_SIZE ?
+	        10000 : c->frame_size;
+	samples = av_malloc(audio_input_frame_size * audio_sample_size * c->channels);
 	audio_input_leftover_samples = 0;
+
+
+	// may need re-sample
+	if (c->sample_fmt != audio_sample_format) {
+		// convert to float
+		swr_ctx = swr_alloc();
+		if (!swr_ctx) {
+			LOGE("allocate resampler context failed \n");
+			return -1;
+		}
+		av_opt_set_int       (swr_ctx, "in_channel_count",   c->channels,       0);
+		av_opt_set_int       (swr_ctx, "in_sample_rate",     c->sample_rate,    0);
+		av_opt_set_sample_fmt(swr_ctx, "in_sample_fmt",      audio_sample_format, 0);
+		av_opt_set_int       (swr_ctx, "out_channel_count",  c->channels,       0);
+		av_opt_set_int       (swr_ctx, "out_sample_rate",    c->sample_rate,    0);
+		av_opt_set_sample_fmt(swr_ctx, "out_sample_fmt",     c->sample_fmt,     0);
+		int ret = swr_init(swr_ctx);
+		if (ret < 0) {
+			LOGE("initialize the resampling context failed \n");
+			return ret;
+		}
+
+		max_dst_nb_samples = audio_input_frame_size;
+		int line_size;
+		// allocate dst_samples buffer: dst_samples and dst_samples[0] are allocated
+		// dst_samples[1] = dst_samples[0] + line_size
+		ret = av_samples_alloc_array_and_samples(&dst_samples, &line_size, c->channels,
+													 max_dst_nb_samples, c->sample_fmt, 0);
+		if (ret < 0) {
+			LOGE("allocate destination samples failed \n");
+			return ret;
+		}
+		dst_samples_size = av_samples_get_buffer_size(NULL, c->channels, max_dst_nb_samples,
+																		  c->sample_fmt, 0);
+	}
 
 	LOGI("audio codec opened \n");
 	return 0;
@@ -215,11 +262,17 @@ AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
 	c->time_base.den = 15;
 	c->gop_size = 25;
 	c->thread_count = 2;
-	c->pix_fmt = PIX_FMT_YUV420P;
-	av_opt_set(c->priv_data, "preset", "ultrafast",0);
-	av_opt_set(c->priv_data, "wpp", "4",0);
-	av_opt_set(c->priv_data, "disable_sei", "1",0);
-	av_opt_set(c->priv_data, "HM_compatibility", "12",0);
+	c->pix_fmt = video_pixfmt;
+	if (codec_id == AV_CODEC_ID_HEVC) {
+		av_opt_set(c->priv_data, "preset", "ultrafast",0);
+		av_opt_set(c->priv_data, "wpp", "4",0);
+		av_opt_set(c->priv_data, "disable_sei", "1",0);
+		av_opt_set(c->priv_data, "HM_compatibility", "12",0);
+	}
+
+	if (oc->oformat->flags & AVFMT_GLOBALHEADER) {
+		c->flags |= CODEC_FLAG_GLOBAL_HEADER;
+	}
 
 	LOGI("video stream added \n");
 	return st;
@@ -300,10 +353,6 @@ int VideoRecorder::close()
 		avcodec_free_frame(&video_frame);
 	}
 
-	if (img_convert_ctx) {
-		sws_freeContext(img_convert_ctx);
-	}
-
 	if (audio_st) {
 		avcodec_close(audio_st->codec);
 	}
@@ -318,6 +367,15 @@ int VideoRecorder::close()
 
 	if (samples) {
 		av_free(samples);
+	}
+
+	if (dst_samples) {
+		av_free(dst_samples[0]);
+		av_free(dst_samples);
+	}
+
+	if (swr_ctx) {
+		swr_free(&swr_ctx);
 	}
 
 	if (oc) {
@@ -370,6 +428,7 @@ int VideoRecorder::setAudioOptions(AudioSampleFormat fmt, int channels, unsigned
 			LOGE("Unknown sample format passed to setAudioOptions!\n");
 			return -1;
 	}
+
 	audio_channels = channels;
 	audio_bit_rate = bitrate;
 	audio_sample_rate = samplerate;
@@ -390,34 +449,70 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 	AVCodecContext *c = audio_st->codec;
 	uint8_t *data = (uint8_t *)sampleData;
 
-	// numSamples is supplied by the codec.. should be c->frame_size (1024 for AAC)
-	// if it's more we go through it c->frame_size samples at a time
+	// if numSamples is too large, we will go through it audio_input_frame_size samples at a time
 	while (numSamples) {
-		// if we have enough samples for a frame, we write out c->frame_size number of samples (ie: one frame) to the output context
-		if (numSamples + audio_input_leftover_samples >= c->frame_size) {
+		// if we have enough samples for a frame, we write out audio_input_frame_size number of samples (ie: one frame) to the output context
+		if (numSamples + audio_input_leftover_samples >= audio_input_frame_size) {
 			// audio_input_leftover_samples contains the number of samples already in our "samples" array, left over from last time
 			// we copy the remaining samples to fill up the frame to the complete frame size
-			int num_new_samples = c->frame_size - audio_input_leftover_samples;
+			int num_new_samples = audio_input_frame_size - audio_input_leftover_samples;
 
+			LOGD("copy new samples: %d - %d = %d, from %p to %p \n", audio_input_frame_size, audio_input_leftover_samples, num_new_samples, data, samples);
 			memcpy((uint8_t *)samples + (audio_input_leftover_samples * audio_sample_size * audio_channels), data, num_new_samples * audio_sample_size * audio_channels);
 			numSamples -= num_new_samples;
 			data += (num_new_samples * audio_sample_size * audio_channels);
 			audio_input_leftover_samples = 0;
 
-			//TODO: prepare audio frame
-			audio_frame->nb_samples = c->frame_size;
-			audio_frame->pts = av_rescale_q(samples_count, (AVRational){1, c->sample_rate}, c->time_base);
+			// prepare audio frame
+			LOGD("prepare audio frame \n");
+			int dst_nb_samples = audio_input_frame_size;
+			int ret = 0;
+			if (swr_ctx != NULL) {
+				// do re-sampling
+				LOGD("do re-sampling \n");
+				dst_nb_samples = av_rescale_rnd(swr_get_delay(swr_ctx, c->sample_rate) + audio_input_frame_size,
+						c->sample_rate, c->sample_rate, AV_ROUND_UP);
+				if (dst_nb_samples > max_dst_nb_samples) {
+					LOGD("reallocate dst_samples \n");
+					av_free(dst_samples[0]);
+					ret = av_samples_alloc(dst_samples, NULL, c->channels,
+										   dst_nb_samples, c->sample_fmt, 0);
+					if (ret < 0) {
+						LOGE("allocate samples failed \n");
+						return ret;
+					}
+					max_dst_nb_samples = dst_nb_samples;
+					dst_samples_size = av_samples_get_buffer_size(NULL, c->channels, dst_nb_samples,
+																  c->sample_fmt, 0);
+				}
 
+				LOGD("convert samples \n");
+				ret = swr_convert(swr_ctx, dst_samples, dst_nb_samples,
+				                          (const uint8_t **)&samples, audio_input_frame_size);
+				if (ret < 0) {
+					LOGE("Error while converting\n");
+					return ret;
+				}
+			} else {
+				dst_samples[0] = (uint8_t*)samples;
+			}
+
+			audio_frame->nb_samples = dst_nb_samples;
+			audio_frame->pts = av_rescale_q(samples_count, (AVRational){1, c->sample_rate}, c->time_base);
+			LOGD("fill audio frame \n");
 			avcodec_fill_audio_frame(audio_frame, c->channels, c->sample_fmt,
-					(const uint8_t*)samples, audio_input_frame_size * audio_sample_size * c->channels, 0);
+					dst_samples[0], dst_samples_size, 0);
 
 			// decode to get packet
 			// we need to initialize packet every time so all the values (such as pts) are re-initialized
 			av_init_packet(&audio_pkt);
 			audio_pkt.data = audio_pkt_buf;
 			audio_pkt.size = audio_pkt_buf_size;
+
+			LOGD("encode audio \n");
 		    int got_packet = 0;
-			int ret = avcodec_encode_audio2(c, &audio_pkt, audio_frame, &got_packet);
+			ret = avcodec_encode_audio2(c, &audio_pkt, audio_frame, &got_packet);
+			LOGD("after encode audio \n");
 			if (ret < 0) {
 				LOGE("Error encoding audio frame: %d\n", ret);
 				return ret;
@@ -430,10 +525,12 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 					return ret;
 				}
 			}
+
+			LOGD("update samples count \n");
 			samples_count += audio_frame->nb_samples;
 		} else {
 			// if we didn't have enough samples for a frame, we copy over however many we had and update audio_input_leftover_samples
-			int num_new_samples = c->frame_size - audio_input_leftover_samples;
+			int num_new_samples = audio_input_frame_size - audio_input_leftover_samples;
 			if (numSamples < num_new_samples) {
 				num_new_samples = numSamples;
 			}

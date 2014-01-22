@@ -4,7 +4,7 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
 #include <libavutil/error.h>
 }
 
@@ -60,14 +60,15 @@ private:
 	AVStream *audio_st;
 	AVFrame *audio_frame;
 	AVPacket audio_pkt;
-
-	int16_t *samples;
-	unsigned long long samples_count;
-
 	uint8_t *audio_pkt_buf;
 	int audio_pkt_buf_size;
-	int audio_input_frame_size;
 
+	void *samples;
+	uint8_t **dst_samples;
+	int dst_samples_size;
+	int max_dst_nb_samples;
+	unsigned long samples_count;
+	int audio_input_frame_size;
 	unsigned long audio_input_leftover_samples;
 
 	int audio_channels;				// number of channels (2)
@@ -75,6 +76,7 @@ private:
 	unsigned long audio_sample_rate;		// number of samples per second
 	int audio_sample_size;					// size of each sample in bytes (16-bit = 2)
 	AVSampleFormat audio_sample_format;
+	SwrContext *swr_ctx;
 
 	// video related vars
 	AVStream *video_st;
@@ -87,8 +89,6 @@ private:
 	int video_height;
 	unsigned long video_bitrate;
 	PixelFormat video_pixfmt;
-	SwsContext *img_convert_ctx;
-
 	unsigned long timestamp_start;
 
 	// common
