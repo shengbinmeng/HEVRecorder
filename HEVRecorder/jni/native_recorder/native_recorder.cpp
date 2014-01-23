@@ -23,7 +23,7 @@ int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height)
 	char filename[512], timenow[100];
 	time_t now = time(0);
 	strftime(timenow, 100, "%Y-%m-%d-%H-%M-%S", localtime (&now));
-	sprintf(filename, "/sdcard/xxx-%s.flv", timenow);
+	sprintf(filename, "/sdcard/record-%s.flv", timenow);
 	ret = recorder->open(filename, true);
 	if (ret < 0) {
 		LOGE("open recorder failed \n");

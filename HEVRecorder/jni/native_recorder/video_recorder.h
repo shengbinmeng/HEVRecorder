@@ -80,7 +80,7 @@ private:
 
 	// video related vars
 	AVStream *video_st;
-	AVFrame *video_frame; // video frame after being converted to desired format, e.g. YUV420P
+	AVFrame *video_frame;
 	AVPacket video_pkt;
 	uint8_t *video_pkt_buf;
 	int video_pkt_buf_size;
@@ -93,13 +93,11 @@ private:
 
 	// common
 	AVFormatContext *oc;
-	AVDictionary* pAVDictionary = NULL;
 
 	AVStream *add_audio_stream(enum AVCodecID codec_id);
 	int open_audio();
 
 	AVStream *add_video_stream(enum AVCodecID codec_id);
-	AVFrame *alloc_frame(enum PixelFormat pix_fmt, int width, int height);
 	int open_video();
 };
 

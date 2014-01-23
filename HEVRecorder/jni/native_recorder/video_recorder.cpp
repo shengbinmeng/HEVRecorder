@@ -113,7 +113,7 @@ int VideoRecorder::open(const char *file, bool hasAudio)
 		return ret;
 	}
 
-	ret = avformat_write_header(oc, &pAVDictionary);
+	ret = avformat_write_header(oc, NULL);
 	if (ret < 0) {
 		LOGE("write format header failed \n");
 		return ret;
