@@ -52,17 +52,30 @@ static void ffmpeg_log_callback (void* ptr, int level, const char* fmt, va_list 
 
 VideoRecorder::VideoRecorder()
 {
+	// audio related vars
+	audio_st = NULL;
+	audio_frame = NULL;
+	audio_pkt_buf = NULL;
+	audio_pkt_buf_size = 0;
+
 	samples = NULL;
 	dst_samples = NULL;
-	audio_pkt_buf = NULL;
-	audio_st = NULL;
+	dst_samples_size = 0;
+	max_dst_nb_samples = 0;
+	samples_count = 0;
+	audio_input_frame_size = 0;
 	audio_input_leftover_samples = 0;
+
 	swr_ctx = NULL;
 
-	video_frame = audio_frame = NULL;
-	video_pkt_buf = NULL;
+	// video related vars
 	video_st = NULL;
+	video_frame = NULL;
+	video_pkt_buf = NULL;
+	video_pkt_buf_size = 0;
+	timestamp_start = 0;
 
+	// common
 	oc = NULL;
 
 	av_log_set_callback(ffmpeg_log_callback);
@@ -200,10 +213,8 @@ int VideoRecorder::open_audio()
 	samples = av_malloc(audio_input_frame_size * audio_sample_size * c->channels);
 	audio_input_leftover_samples = 0;
 
-
 	// may need re-sample
 	if (c->sample_fmt != audio_sample_format) {
-		// convert to float
 		swr_ctx = swr_alloc();
 		if (!swr_ctx) {
 			LOGE("allocate resampler context failed \n");
@@ -364,8 +375,9 @@ int VideoRecorder::close()
 		av_write_trailer(oc);
 	}
 
-	if (video_st)
+	if (video_st) {
 		avcodec_close(video_st->codec);
+	}
 
 	if (video_pkt_buf) {
 		av_free(video_pkt_buf);
@@ -480,28 +492,25 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 			// we copy the remaining samples to fill up the frame to the complete frame size
 			int num_new_samples = audio_input_frame_size - audio_input_leftover_samples;
 
-			LOGD("copy new samples: %d - %lu = %d, from %p to %p \n", audio_input_frame_size, audio_input_leftover_samples, num_new_samples, data, samples);
 			memcpy((uint8_t *)samples + (audio_input_leftover_samples * audio_sample_size * audio_channels), data, num_new_samples * audio_sample_size * audio_channels);
 			numSamples -= num_new_samples;
 			data += (num_new_samples * audio_sample_size * audio_channels);
 			audio_input_leftover_samples = 0;
 
 			// prepare audio frame
-			LOGD("prepare audio frame \n");
 			int dst_nb_samples = audio_input_frame_size;
 			int ret = 0;
 			if (swr_ctx != NULL) {
 				// do re-sampling
-				LOGD("do re-sampling \n");
 				dst_nb_samples = av_rescale_rnd(swr_get_delay(swr_ctx, c->sample_rate) + audio_input_frame_size,
 						c->sample_rate, c->sample_rate, AV_ROUND_UP);
 				if (dst_nb_samples > max_dst_nb_samples) {
-					LOGD("reallocate dst_samples \n");
+					LOGI("reallocate dst_samples \n");
 					av_free(dst_samples[0]);
 					ret = av_samples_alloc(dst_samples, NULL, c->channels,
 										   dst_nb_samples, c->sample_fmt, 0);
 					if (ret < 0) {
-						LOGE("allocate samples failed \n");
+						LOGE("allocate dst_samples failed \n");
 						return ret;
 					}
 					max_dst_nb_samples = dst_nb_samples;
@@ -509,7 +518,6 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 																  c->sample_fmt, 0);
 				}
 
-				LOGD("convert samples \n");
 				ret = swr_convert(swr_ctx, dst_samples, dst_nb_samples,
 				                          (const uint8_t **)&samples, audio_input_frame_size);
 				if (ret < 0) {
@@ -522,7 +530,6 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 
 			audio_frame->nb_samples = dst_nb_samples;
 			audio_frame->pts = av_rescale_q(samples_count, (AVRational){1, c->sample_rate}, c->time_base);
-			LOGD("fill audio frame \n");
 			avcodec_fill_audio_frame(audio_frame, c->channels, c->sample_fmt,
 					dst_samples[0], dst_samples_size, 0);
 
@@ -532,7 +539,6 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 			audio_pkt.data = audio_pkt_buf;
 			audio_pkt.size = audio_pkt_buf_size;
 
-			LOGD("encode audio \n");
 		    int got_packet = 0;
 			ret = avcodec_encode_audio2(c, &audio_pkt, audio_frame, &got_packet);
 			if (ret < 0) {
@@ -548,7 +554,6 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 				}
 			}
 
-			LOGD("update samples count \n");
 			samples_count += audio_frame->nb_samples;
 		} else {
 			// if we didn't have enough samples for a frame, we copy over however many we had and update audio_input_leftover_samples

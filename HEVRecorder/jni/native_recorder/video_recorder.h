@@ -84,12 +84,12 @@ private:
 	AVPacket video_pkt;
 	uint8_t *video_pkt_buf;
 	int video_pkt_buf_size;
+	unsigned long timestamp_start;
 
 	int video_width;
 	int video_height;
 	unsigned long video_bitrate;
 	PixelFormat video_pixfmt;
-	unsigned long timestamp_start;
 
 	// common
 	AVFormatContext *oc;
