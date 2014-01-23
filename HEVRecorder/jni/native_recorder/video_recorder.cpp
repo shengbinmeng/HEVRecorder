@@ -443,21 +443,21 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 		return -1;
 	}
 
-	unsigned long numSamples = numBytes / audio_sample_size;
+	unsigned long numSamples = numBytes / audio_sample_size / audio_channels;
 	LOGD("supply audio data: %lu bytes, %lu samples \n", numBytes, numSamples);
 
 	AVCodecContext *c = audio_st->codec;
 	uint8_t *data = (uint8_t *)sampleData;
 
 	// if numSamples is too large, we will go through it audio_input_frame_size samples at a time
-	while (numSamples) {
+	while (numSamples > 0) {
 		// if we have enough samples for a frame, we write out audio_input_frame_size number of samples (ie: one frame) to the output context
 		if (numSamples + audio_input_leftover_samples >= audio_input_frame_size) {
 			// audio_input_leftover_samples contains the number of samples already in our "samples" array, left over from last time
 			// we copy the remaining samples to fill up the frame to the complete frame size
 			int num_new_samples = audio_input_frame_size - audio_input_leftover_samples;
 
-			LOGD("copy new samples: %d - %d = %d, from %p to %p \n", audio_input_frame_size, audio_input_leftover_samples, num_new_samples, data, samples);
+			LOGD("copy new samples: %d - %lu = %d, from %p to %p \n", audio_input_frame_size, audio_input_leftover_samples, num_new_samples, data, samples);
 			memcpy((uint8_t *)samples + (audio_input_leftover_samples * audio_sample_size * audio_channels), data, num_new_samples * audio_sample_size * audio_channels);
 			numSamples -= num_new_samples;
 			data += (num_new_samples * audio_sample_size * audio_channels);
@@ -512,7 +512,6 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 			LOGD("encode audio \n");
 		    int got_packet = 0;
 			ret = avcodec_encode_audio2(c, &audio_pkt, audio_frame, &got_packet);
-			LOGD("after encode audio \n");
 			if (ret < 0) {
 				LOGE("Error encoding audio frame: %d\n", ret);
 				return ret;

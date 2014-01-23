@@ -4,7 +4,6 @@
 #define LOG_TAG "native_recorder"
 
 static VideoRecorder *recorder = NULL;
-static uint16_t *sound_buffer;
 static int frameCount = 0;
 
 
