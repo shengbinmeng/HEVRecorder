@@ -15,6 +15,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.FrameLayout.LayoutParams;
 
@@ -24,6 +25,7 @@ public class RecordingActivity extends Activity {
     private Camera mCamera;
     private CameraPreview mPreview;
     boolean mRecording = false;
+    TextView mInfoText = null;
     
     AudioRecord mAudioRecord; 
     byte[] mAudioBuffer;
@@ -98,6 +100,9 @@ public class RecordingActivity extends Activity {
         layoutText.bringToFront();
         RelativeLayout layoutButton = (RelativeLayout) findViewById(R.id.layout_button);
         layoutButton.bringToFront();
+        
+        mInfoText = (TextView) findViewById(R.id.text_info);
+        mInfoText.setText("");
         Button buttonControl = (Button) findViewById(R.id.button_control);
         buttonControl.setOnClickListener(new View.OnClickListener(){
 			@Override
@@ -122,6 +127,7 @@ public class RecordingActivity extends Activity {
 					mCamera.setPreviewCallback(null);
 					
 					((Button)arg0).setText(R.string.start);
+			        mInfoText.setText("");
 
 				} else {
 					// open the recorder
@@ -153,6 +159,7 @@ public class RecordingActivity extends Activity {
 					mAudioThread.start();
 					
 					((Button)arg0).setText(R.string.stop);
+			        mInfoText.setText("recording... video size: " + s.width + "x" + s.height);
 				}
 			}
         	
