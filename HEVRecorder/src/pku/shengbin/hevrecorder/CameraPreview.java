@@ -63,15 +63,12 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
     	mCamera.setParameters(p);
     }
     
-    public void setDisplaySize() {
-    	
-    	Camera.Size size = mCamera.getParameters().getPreviewSize();
+    public void setDisplaySize(int width, int height) {
     	LayoutParams params = (LayoutParams) this.getLayoutParams(); 
     	params.gravity = Gravity.CENTER;
-        params.width = size.width;
-        params.height = size.height;
+        params.width = width;
+        params.height = height;
         this.setLayoutParams(params);
-        
     }
 
     public void surfaceCreated(SurfaceHolder holder) {

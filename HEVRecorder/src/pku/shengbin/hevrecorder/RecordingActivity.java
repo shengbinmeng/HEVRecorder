@@ -16,6 +16,7 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
 import android.widget.Toast;
+import android.widget.FrameLayout.LayoutParams;
 
 public class RecordingActivity extends Activity {
 
@@ -87,7 +88,9 @@ public class RecordingActivity extends Activity {
         FrameLayout preview = (FrameLayout) findViewById(R.id.camera_preview);
         preview.addView(mPreview);
         
-        mPreview.setDisplaySize();
+        // set display size to the size of our frame layout, i.e. full screen (better to consider the ratio)
+    	LayoutParams params = (LayoutParams) preview.getLayoutParams();
+        mPreview.setDisplaySize(params.width, params.height);
         
         
         // controls
