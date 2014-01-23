@@ -35,20 +35,20 @@ int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height)
 
 int native_recorder_encode_video(JNIEnv *env, jobject thiz, jbyteArray array)
 {
-	jbyte* data = env->GetByteArrayElements(array, NULL);
+	jbyte* data = env->GetByteArrayElements(array, 0);
 	jsize length = env->GetArrayLength(array);
 	int ret = recorder->supplyVideoFrame(data, length, frameCount);
 	frameCount++;
-	delete data;
+	env->ReleaseByteArrayElements(array, data, 0);
 	return ret;
 }
 
 int native_recorder_encode_audio(JNIEnv *env, jobject thiz, jbyteArray array)
 {
-	jbyte* data = env->GetByteArrayElements(array, NULL);
+	jbyte* data = env->GetByteArrayElements(array, 0);
 	jsize length = env->GetArrayLength(array);
 	int ret = recorder->supplyAudioSamples(data, length);
-	delete data;
+	env->ReleaseByteArrayElements(array, data, 0);
 	return ret;
 }
 
