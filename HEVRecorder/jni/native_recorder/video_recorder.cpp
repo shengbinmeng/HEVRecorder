@@ -338,6 +338,28 @@ int VideoRecorder::close()
 			}
 		}
 
+		// audio also needs flushing
+		if (audio_st) {
+			av_init_packet(&audio_pkt);
+			audio_pkt.data = audio_pkt_buf;
+			audio_pkt.size = audio_pkt_buf_size;
+			AVCodecContext *c = audio_st->codec;
+			int got_packet = 0;
+			while (avcodec_encode_audio2(c, &audio_pkt, NULL, &got_packet) == 0 && got_packet == 1) {
+				if (got_packet) {
+					LOGD("got an audio packet \n");
+					int ret = write_frame(oc, &c->time_base, audio_st, &audio_pkt);
+					if (ret < 0) {
+						LOGE("Error while writing audio packet: %d \n", ret);
+						return ret;
+					}
+					av_init_packet(&audio_pkt);
+					audio_pkt.data = audio_pkt_buf;
+					audio_pkt.size = audio_pkt_buf_size;
+				}
+			}
+		}
+
 		LOGI("write trailer \n");
 		av_write_trailer(oc);
 	}
@@ -386,6 +408,7 @@ int VideoRecorder::close()
 		avio_close(oc->pb);
 		av_free(oc);
 	}
+
 	LOGI("recorder closed \n");
 	return 0;
 }
