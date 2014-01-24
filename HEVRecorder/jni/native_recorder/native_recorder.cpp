@@ -35,6 +35,11 @@ int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height)
 
 int native_recorder_encode_video(JNIEnv *env, jobject thiz, jbyteArray array)
 {
+	// skip frames if encoding is slow
+	if ((frameCount % 1) != 0) {
+		frameCount++;
+		return 0;
+	}
 	jbyte* data = env->GetByteArrayElements(array, 0);
 	jsize length = env->GetArrayLength(array);
 	int ret = recorder->supplyVideoFrame(data, length, frameCount);

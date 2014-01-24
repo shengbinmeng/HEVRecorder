@@ -330,12 +330,17 @@ int VideoRecorder::close()
 		// flush out delayed frames
 		LOGI("flush out delayed frames \n");
 		int out_size;
-		av_init_packet(&video_pkt);
-		video_pkt.data = video_pkt_buf;
-		video_pkt.size = video_pkt_buf_size;
 		AVCodecContext *c = video_st->codec;
-		int got_packet = 0;
-		while (avcodec_encode_video2(c, &video_pkt, NULL, &got_packet) == 0 && got_packet == 1) {
+		int got_packet = 1, ret = -1;
+		while (got_packet == 1) {
+			av_init_packet(&video_pkt);
+			video_pkt.data = video_pkt_buf;
+			video_pkt.size = video_pkt_buf_size;
+			ret = avcodec_encode_video2(c, &video_pkt, NULL, &got_packet);
+			if (ret < 0) {
+				LOGE("Error encoding video frame: %d\n", ret);
+				return ret;
+			}
 			if (got_packet) {
 				LOGD("got a video packet \n");
 				int ret = write_frame(oc, &c->time_base, video_st, &video_pkt);
@@ -343,20 +348,22 @@ int VideoRecorder::close()
 					LOGE("Error while writing video packet: %d \n", ret);
 					return ret;
 				}
-				av_init_packet(&video_pkt);
-				video_pkt.data = video_pkt_buf;
-				video_pkt.size = video_pkt_buf_size;
 			}
 		}
 
 		// audio also needs flushing
 		if (audio_st) {
-			av_init_packet(&audio_pkt);
-			audio_pkt.data = audio_pkt_buf;
-			audio_pkt.size = audio_pkt_buf_size;
 			AVCodecContext *c = audio_st->codec;
-			int got_packet = 0;
-			while (avcodec_encode_audio2(c, &audio_pkt, NULL, &got_packet) == 0 && got_packet == 1) {
+			int got_packet = 1, ret = -1;
+			while (got_packet == 1) {
+				av_init_packet(&audio_pkt);
+				audio_pkt.data = audio_pkt_buf;
+				audio_pkt.size = audio_pkt_buf_size;
+				ret = avcodec_encode_audio2(c, &audio_pkt, NULL, &got_packet);
+				if (ret < 0) {
+					LOGE("Error encoding audio frame: %d\n", ret);
+					return ret;
+				}
 				if (got_packet) {
 					LOGD("got an audio packet \n");
 					int ret = write_frame(oc, &c->time_base, audio_st, &audio_pkt);
@@ -364,9 +371,6 @@ int VideoRecorder::close()
 						LOGE("Error while writing audio packet: %d \n", ret);
 						return ret;
 					}
-					av_init_packet(&audio_pkt);
-					audio_pkt.data = audio_pkt_buf;
-					audio_pkt.size = audio_pkt_buf_size;
 				}
 			}
 		}
