@@ -7,6 +7,9 @@ SYSROOT=$ANDROID_NDK/platforms/android-9/arch-x86
 TOOLCHAIN=$ANDROID_NDK/toolchains/x86-4.8/prebuilt/darwin-x86_64
 PREFIX=./android/x86
 
+#
+# read the configure help carefully before you want to change the following options
+#
 ./configure \
     --prefix=$PREFIX \
     --target-os=linux \
@@ -20,34 +23,18 @@ PREFIX=./android/x86
     --disable-amd3dnow \
     --disable-amd3dnowext \
     --disable-mmx \
-    --enable-static \
     --enable-gpl \
     --enable-version3 \
     --enable-nonfree \
     --disable-doc \
-    --disable-htmlpages \
-    --disable-manpages \
-    --disable-podpages \
-    --disable-txtpages \
+    --disable-programs \
     --enable-ffmpeg \
-    --disable-ffplay \
-    --disable-ffserver \
-    --disable-ffprobe \
-    --disable-zlib \
-    --disable-bzlib \
     --disable-avdevice \
     --disable-postproc \
-    --disable-avresample \
-    --enable-avutil \
-    --enable-avformat \
-    --enable-avcodec \
-    --enable-swresample \
-    --enable-swscale \
     --disable-everything \
-    --enable-protocol=file \
-    --enable-encoder=h263 \
     --enable-encoder=aac \
-    --enable-muxer=mpegts \
-    --enable-muxer=flv \
     --enable-encoder=liblenthevc \
     --enable-liblenthevcenc \
+    --enable-protocol=file \
+    --enable-muxer=mpegts \
+    --enable-muxer=flv \

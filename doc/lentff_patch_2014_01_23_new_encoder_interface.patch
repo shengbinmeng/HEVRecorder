@@ -135,7 +135,7 @@ index 0000000..08c6cb0
 +rpmbuild -bb $spec
 +
 diff --git a/configure b/configure
-index c9ad948..a69ca11 100755
+index c9ad948..b461d57 100755
 --- a/configure
 +++ b/configure
 @@ -237,6 +237,8 @@ External library support:
@@ -183,7 +183,7 @@ index c9ad948..a69ca11 100755
                               { check_cpp_condition x264.h "X264_BUILD >= 118" ||
                                 die "ERROR: libx264 must be installed and version must be >= 0.118."; }
 +enabled liblenthevcdec    && require liblenthevcdec lenthevcdec.h lenthevcdec_decode_frame -llenthevcdec
-+enabled liblenthevcenc    && require liblenthevcenc Lentoid.h LENT_encoder_encode -llenthevcenc
++enabled liblenthevcenc    && require liblenthevcenc lenthevcenc.h lenthevcenc_encode_frame -llenthevcenc
  enabled libxavs           && require libxavs xavs.h xavs_encoder_encode -lxavs
  enabled libxvid           && require libxvid xvid.h xvid_global -lxvidcore
  enabled libzmq            && require_pkg_config libzmq zmq.h zmq_ctx_new
@@ -1339,10 +1339,10 @@ index 0000000..82bb019
 +};
 diff --git a/libavcodec/liblenthevcenc.c b/libavcodec/liblenthevcenc.c
 new file mode 100644
-index 0000000..cc60630
+index 0000000..f02cd85
 --- /dev/null
 +++ b/libavcodec/liblenthevcenc.c
-@@ -0,0 +1,479 @@
+@@ -0,0 +1,538 @@
 +/*
 + * HEVC encoding using the Strongene Lentoid HEVC encoder
 + * Copyright (C) 2013 Strongene Inc.
@@ -1368,14 +1368,27 @@ index 0000000..cc60630
 +#include "../libavutil/timestamp.h"
 +#include "avcodec.h"
 +#include "internal.h"
-+#include "Lentoid.h"
++#include "lenthevcenc.h"
++
++#ifndef COUNTOF
++#define COUNTOF(a) (sizeof(a)/sizeof((a)[0]))
++#endif
 +
 +#define HM_COMPATIBILITY_LAST	120 /* the last version is 120 currently */
++#define LENTHEVCENC_THREADS_DEFAULT 5
++
++typedef struct LENTPIC {
++	uint32_t width;
++	uint32_t height;
++	uint8_t* data[3];
++	int32_t stride[3];
++	int64_t pts;
++} LENTPIC;
 +
 +typedef struct LentHEVCEncContext {
 +	AVClass * class;
-+	LENT_HANDLE enc;
-+	LENT_param_t param;
++	lenthevcenc_ctx enc;
++	lenthevcenc_create_param param;
 +	char * preset_name;
 +	int thread_wpp;
 +	int disable_sei;
@@ -1384,26 +1397,49 @@ index 0000000..cc60630
 +	FILE * recon_file;
 +	int recon_reorder_size;
 +	int recon_reorder_len;
-+	LENT_picture_t * recon_reorder_pics;
++	LENTPIC * recon_reorder_pics;
 +} LentHEVCEncContext;
 +
++static int alloc_pic(LENTPIC *pic, uint32_t width, uint32_t height)
++{
++	if ( NULL == pic || 0 == width || 0 == height )
++		return AVERROR(EINVAL);
++	memset(pic, 0, sizeof(*pic));
++	pic->width = width;
++	pic->height = height;
++	pic->stride[2] = pic->stride[1] = (pic->stride[0] = width) / 2;
++	pic->pts = 0;
++	pic->data[0] = av_malloc(width * height * 3 / 2);
++	if ( NULL == pic->data[0] )
++		return AVERROR(ENOMEM);
++	pic->data[1] = pic->data[0] + width * height;
++	pic->data[2] = pic->data[1] + width * height / 4;
++	return 0;
++}
 +
-+static int fwrite_pic(FILE *fp, LENT_picture_t *pic)
++static void free_pic(LENTPIC *pic)
++{
++	if ( NULL != pic ) {
++		av_free(pic->data[0]);
++		memset(pic, 0, sizeof(*pic));
++	}
++}
++
++static int fwrite_pic(FILE *fp, LENTPIC *pic)
 +{
 +	int plane, line, width, height, stride;
 +	uint8_t *data;
 +	if ( NULL == fp )
 +		return 0;
 +	if ( NULL == pic ||
-+	     NULL == pic->img.plane[0] || NULL == pic->img.plane[1] || NULL == pic->img.plane[2] ||
-+	     pic->img.i_width[0] <= 0 || pic->img.i_width[1] <= 0 || pic->img.i_width[2] <= 0 || 
-+	     pic->img.i_height[0] <= 0 || pic->img.i_height[1] <= 0 || pic->img.i_height[2] <= 0 )
++	     NULL == pic->data[0] || NULL == pic->data[1] || NULL == pic->data[2] ||
++	     pic->width <= 0 || pic->height <= 0 )
 +		return AVERROR(EINVAL);
 +	for ( plane = 0; plane < 3; plane++ ) {
-+		width = pic->img.i_width[plane];
-+		height = pic->img.i_height[plane];
-+		stride = pic->img.i_stride[plane];
-+		data = pic->img.plane[plane];
++		width  = pic->width  >> ((plane > 0) ? 1 : 0);
++		height = pic->height >> ((plane > 0) ? 1 : 0);
++		stride = pic->stride[plane];
++		data = pic->data[plane];
 +		for ( line = 0; line < height; line++ ) {
 +			fwrite(data, 1, width, fp);
 +			data += stride;
@@ -1412,24 +1448,22 @@ index 0000000..cc60630
 +	return 0;
 +}
 +
-+static int pic_cpy(LENT_picture_t *dst, LENT_picture_t *src)
++static int pic_cpy(LENTPIC *dst, LENTPIC *src)
 +{
 +	int plane, line, width, height, stride_src, stride_dst;
 +	uint8_t *data_src, *data_dst;
 +	if ( NULL == dst || NULL == src ||
-+	     NULL == dst->img.plane[0] || NULL == dst->img.plane[1] || NULL == dst->img.plane[2] ||
-+	     NULL == src->img.plane[0] || NULL == src->img.plane[1] || NULL == src->img.plane[2] )
++	     NULL == dst->data[0] || NULL == dst->data[1] || NULL == dst->data[2] ||
++	     NULL == src->data[0] || NULL == src->data[1] || NULL == src->data[2] )
 +		return AVERROR(EINVAL);
-+	dst->i_type = src->i_type;
-+	dst->i_pts = src->i_pts;
-+	dst->i_dts = src->i_dts;
++	dst->pts = src->pts;
 +	for ( plane = 0; plane < 3; plane++ ) {
-+		width = FFMIN(dst->img.i_width[plane], src->img.i_width[plane]);
-+		height = FFMIN(dst->img.i_height[plane], src->img.i_height[plane]);
-+		stride_dst = dst->img.i_stride[plane];
-+		stride_src = src->img.i_stride[plane];
-+		data_dst = dst->img.plane[plane];
-+		data_src = src->img.plane[plane];
++		width  = FFMIN(dst->width , src->width ) >> ((plane > 0) ? 1 : 0);
++		height = FFMIN(dst->height, src->height) >> ((plane > 0) ? 1 : 0);
++		stride_dst = dst->stride[plane];
++		stride_src = src->stride[plane];
++		data_dst = dst->data[plane];
++		data_src = src->data[plane];
 +		for ( line = 0; line < height; line++ ) {
 +			memcpy(data_dst, data_src, width);
 +			data_dst += stride_dst;
@@ -1439,12 +1473,12 @@ index 0000000..cc60630
 +	return 0;
 +}
 +
-+#define PIC_SWAP(pic1, pic2) { LENT_picture_t tmp = *(pic1); *(pic1) = *(pic2); *(pic2) = tmp; }
++#define PIC_SWAP(pic1, pic2) { LENTPIC tmp = *(pic1); *(pic1) = *(pic2); *(pic2) = tmp; }
 +
-+static int output_recon(AVCodecContext *avctx, LENT_picture_t * pic)
++static int output_recon(AVCodecContext *avctx, LENTPIC * pic)
 +{
 +	LentHEVCEncContext *lent = avctx->priv_data;
-+	LENT_picture_t *reorder_pics = lent->recon_reorder_pics;
++	LENTPIC *reorder_pics = lent->recon_reorder_pics;
 +	const int reorder_size = lent->recon_reorder_size;
 +	int i, ret, reorder_len = lent->recon_reorder_len;
 +	// no b frames, output reconstruction picture
@@ -1458,14 +1492,14 @@ index 0000000..cc60630
 +	reorder_len++;
 +	// PTS descending order
 +	for ( i = reorder_len - 1; i > 0; i-- )
-+		if ( reorder_pics[i].i_pts > reorder_pics[i - 1].i_pts )
++		if ( reorder_pics[i].pts > reorder_pics[i - 1].pts )
 +			PIC_SWAP(&reorder_pics[i], &reorder_pics[i - 1]);
 +	// output picture with mimimum PTS
 +	ret = 0;
 +	if ( reorder_len == reorder_size ) {
 +		ret = fwrite_pic(lent->recon_file, &reorder_pics[reorder_len - 1]);
 +		av_log(avctx, AV_LOG_DEBUG, "Output reconstruction picture, pts = %s\n",
-+		       av_ts2str(reorder_pics[reorder_len - 1].i_pts));
++		       av_ts2str(reorder_pics[reorder_len - 1].pts));
 +		reorder_len--;
 +	}
 +	lent->recon_reorder_len = reorder_len;
@@ -1475,7 +1509,7 @@ index 0000000..cc60630
 +static int flush_recon(AVCodecContext *avctx)
 +{
 +	LentHEVCEncContext *lent = avctx->priv_data;
-+	LENT_picture_t *reorder_pics = lent->recon_reorder_pics;
++	LENTPIC *reorder_pics = lent->recon_reorder_pics;
 +	int i, ret, reorder_len = lent->recon_reorder_len;
 +	if ( NULL == reorder_pics || 0 == lent->recon_reorder_size )
 +		return 0;
@@ -1484,7 +1518,7 @@ index 0000000..cc60630
 +		if ( ret < 0 )
 +			break;
 +		av_log(avctx, AV_LOG_DEBUG, "Flush reconstruction picture, pts = %s\n",
-+		       av_ts2str(reorder_pics[i].i_pts));
++		       av_ts2str(reorder_pics[i].pts));
 +	}
 +	lent->recon_reorder_len = 0;
 +	return ret;
@@ -1494,131 +1528,118 @@ index 0000000..cc60630
 +
 +static av_cold int lent_hevc_enc_init(AVCodecContext *avctx)
 +{
-+	static const char * preset_name_tbl[LENT_PRESET_COUNT] = {
-+		"ultraslow",	// default
-+		"slow",
-+		"medium",
-+		"fast",
++	static const char * preset_name_tbl[] = {
 +		"ultrafast",
-+	};
-+	static const int preset_tbl[LENT_PRESET_COUNT] = {
-+		LENT_PRESET_ULTRASLOW,	// default
-+		LENT_PRESET_SLOW,
-+		LENT_PRESET_MEDIUM,
-+		LENT_PRESET_FAST,
-+		LENT_PRESET_ULTRAFAST,
++		"fast",
++		"medium",
++		"slow",
++		"ultraslow",	// default
 +	};
 +	LentHEVCEncContext *lent = avctx->priv_data;
 +	char *preset_name = lent->preset_name;
-+	int idx, preset_idx, preset, compatibility;
++	int idx, compatibility;
 +	lent->enc = NULL;
 +	lent->recon_file = NULL;
 +	lent->recon_reorder_size = 0;
 +	lent->recon_reorder_len = 0;
 +	lent->recon_reorder_pics = NULL;
-+	for ( idx = 0; NULL != preset_name && idx < LENT_PRESET_COUNT; idx++ ) {
++	memset(&lent->param, 0, sizeof(lent->param));
++	lent->param.size = sizeof(lent->param);
++	lenthevcenc_default_param( &lent->param );
++	for ( idx = 0; NULL != preset_name && idx < COUNTOF(preset_name_tbl); idx++ ) {
 +		if ( strcasecmp(preset_name, preset_name_tbl[idx]) == 0 )
 +			break;
 +	}
-+	if ( LENT_PRESET_COUNT == idx ) {
++	if ( COUNTOF(preset_name_tbl) == idx ) {
 +		av_log(avctx, AV_LOG_ERROR, "Error setting preset %s.\n", preset_name);
 +		av_log(avctx, AV_LOG_INFO, "Possible presets:");
-+		for ( idx = 0; idx < LENT_PRESET_COUNT; idx++ )
++		for ( idx = 0; idx < COUNTOF(preset_name_tbl); idx++ )
 +			av_log(avctx, AV_LOG_INFO, " %s", preset_name_tbl[idx]);
 +		av_log(avctx, AV_LOG_INFO, "\n");
 +		return AVERROR(EINVAL);
 +	}
-+	preset_idx = idx;
-+	preset = preset_tbl[idx];
-+	LENT_param_default( &lent->param, preset );
++	lent->param.preset = idx;
 +	if ( avctx->thread_count == 0 )
-+		lent->param.i_threads = 1;
++		lent->param.frame_threads = LENTHEVCENC_THREADS_DEFAULT;
 +	else if ( avctx->thread_count > 0 )
-+		lent->param.i_threads = avctx->thread_count;
-+	if ( lent->thread_wpp > 0 ) {
-+		lent->param.i_threads_wpp = 1;
-+		lent->param.i_threads_wpp_pic[LENT_PIC_IDR ] = lent->thread_wpp;
-+		lent->param.i_threads_wpp_pic[LENT_PIC_P   ] = lent->thread_wpp;
-+		lent->param.i_threads_wpp_pic[LENT_PIC_BREF] = lent->thread_wpp;
-+		lent->param.i_threads_wpp_pic[LENT_PIC_B   ] = lent->thread_wpp;
-+	}
-+	lent->param.b_SEI = (lent->disable_sei == 0);
++		lent->param.frame_threads = avctx->thread_count;
++	if ( lent->thread_wpp > 0 )
++		lent->param.wpp_threads = lent->thread_wpp;
++	lent->param.sei_flag = (lent->disable_sei == 0);
 +	if ( AV_CODEC_ID_HEVC_HM91 == avctx->codec_id ) {
-+		compatibility = lent->param.i_compatibility = 91; /* HM9.1 */
++		compatibility = 91; /* HM9.1 */
 +	} else if ( AV_CODEC_ID_HEVC_HM10 == avctx->codec_id ) {
-+		compatibility = lent->param.i_compatibility = 100; /* HM10.0 */
++		compatibility = 100; /* HM10.0 */
 +	} else {
 +		if ( strcasecmp(lent->hm_compatibility, "last") == 0 ) {
-+			compatibility = lent->param.i_compatibility = HM_COMPATIBILITY_LAST;
++			compatibility = HM_COMPATIBILITY_LAST;
 +		} else {
 +			double hm_ver;
 +			if ( sscanf(lent->hm_compatibility, "%lf", &hm_ver) != 1 ) {
 +				av_log(avctx, AV_LOG_ERROR, "Error setting HM compatibility '%s'.\n", lent->hm_compatibility);
 +				return AVERROR(EINVAL);
 +			}
-+			compatibility = lent->param.i_compatibility = (int)((hm_ver + 0.05) * 10);
++			compatibility = (int)((hm_ver + 0.05) * 10);
 +			if ( compatibility < 91 || compatibility > HM_COMPATIBILITY_LAST ) {
 +				av_log(avctx, AV_LOG_ERROR, "Unsupported HM version '%.1f'.\n", compatibility / 10.0);
 +				return AVERROR(EINVAL);
 +			}
 +		}
 +	}
-+	lent->param.i_log_flag = (av_log_get_level() >= AV_LOG_INFO);
++	lent->param.compatibility = compatibility;
++	lent->param.log_level = (av_log_get_level() >= AV_LOG_INFO);
 +	if ( avctx->keyint_min > 0 )
-+		lent->param.i_idr_min = avctx->keyint_min;
-+//	if ( avctx->gop_size > 0 )	// to do ...
-+//		lent->param.i_idr_max = avctx->gop_size;
-+	lent->param.i_idr_max = lent->param.i_idr_min;	// fix me !!!
++		lent->param.idr_period_min = avctx->keyint_min;
++	lent->param.idr_period_max = lent->param.idr_period_min;	// fix me !!!
 +	if ( avctx->time_base.num != 0 && avctx->time_base.den != 0 ) {
-+		lent->param.i_fps_num = avctx->time_base.den;
-+		lent->param.i_fps_den = avctx->time_base.num;
++		lent->param.fps_num = avctx->time_base.den;
++		lent->param.fps_den = avctx->time_base.num;
 +	}
-+	lent->param.spatial[0].i_width = avctx->width;
-+	lent->param.spatial[0].i_height = avctx->height;
++	lent->param.width = avctx->width;
++	lent->param.height = avctx->height;
 +	if ( avctx->width % 8 != 0 || avctx->height % 8 != 0 )
 +		av_log(avctx, AV_LOG_WARNING, "Width(%d) or height(%d) is not a multiple of 8!\n", avctx->width, avctx->height);
 +	if ( avctx->bit_rate > 0 ) {
-+		lent->param.rc.i_rc_method = LENT_RC_ABR;
-+		lent->param.spatial[0].i_bitrate[0] = avctx->bit_rate / 1000;
++		lent->param.rc_mode = LENTHEVCENC_RCMODE_ABR;
++		lent->param.bitrate = avctx->bit_rate / 1000;
 +	}
 +	if ( avctx->flags & CODEC_FLAG_QSCALE ) {
-+		lent->param.rc.i_rc_method = LENT_RC_CQP;
-+		lent->param.spatial[0].i_qp[0] = avctx->global_quality / FF_QP2LAMBDA;
++		lent->param.rc_mode = LENTHEVCENC_RCMODE_CQP;
++		lent->param.qp = avctx->global_quality / FF_QP2LAMBDA;
 +	}
-+	lent->enc = LENT_encoder_open( &lent->param );
++	lent->enc = lenthevcenc_create( &lent->param );
 +	if ( NULL == lent->enc ) {
++		av_log(avctx, AV_LOG_ERROR, "call lenthevcenc_create failed!\n");
 +		return AVERROR_EXTERNAL;
 +	}
-+	if ( lent->param.i_compatibility != compatibility ) {
++	if ( lent->param.compatibility != compatibility ) {
 +		av_log(avctx, AV_LOG_ERROR,
 +		       "Specified version %.1f is not available, the available version is %.1f\n",
-+		       compatibility/10.0, lent->param.i_compatibility/10.0);
-+		LENT_encoder_close( lent->enc );
++		       compatibility/10.0, lent->param.compatibility/10.0);
++		lenthevcenc_destroy( lent->enc );
 +		lent->enc = NULL;
 +		return AVERROR_EXTERNAL;
 +	}
-+	/* test */
-+	/* lent->param.i_bframe = 5; */
-+	/* test end */
-+	avctx->has_b_frames = lent->param.i_bframe ? (lent->param.i_hierach_bframe + 1) : 0;
++	// avctx->has_b_frames = lent->param.i_bframe ? (lent->param.i_hierach_bframe + 1) : 0;
++	avctx->has_b_frames = 2; // to do: calcuate from encoder parameters ...
 +	avctx->coded_frame = avcodec_alloc_frame();
 +	if ( NULL == avctx->coded_frame ) {
 +		av_log(avctx, AV_LOG_ERROR, "Error allocating coded frame\n");
-+		LENT_encoder_close( lent->enc );
++		lenthevcenc_destroy( lent->enc );
 +		lent->enc = NULL;
 +		return AVERROR(ENOMEM);
 +	}
 +	if ( avctx->flags & CODEC_FLAG_GLOBAL_HEADER ) {
-+		int seq_hdr_len = LENT_encoder_header_get( lent->enc, NULL, 0 );
++		int seq_hdr_len = lenthevcenc_get_header( lent->enc, NULL, 0 );
 +		if ( seq_hdr_len > 0 ) {
 +			avctx->extradata = av_malloc(seq_hdr_len);
 +			if ( NULL == avctx->extradata ) {
 +				av_log(avctx, AV_LOG_ERROR, "Error allocating codec extra data buffer\n");
-+				LENT_encoder_close( lent->enc );
++				lenthevcenc_destroy( lent->enc );
 +				lent->enc = NULL;
 +				return AVERROR(ENOMEM);
 +			}
-+			avctx->extradata_size = LENT_encoder_header_get( lent->enc, avctx->extradata, seq_hdr_len );
++			avctx->extradata_size = lenthevcenc_get_header( lent->enc, avctx->extradata, seq_hdr_len );
 +			av_assert0( avctx->extradata_size == seq_hdr_len );
 +		}
 +	}
@@ -1626,30 +1647,30 @@ index 0000000..cc60630
 +	if ( NULL != lent->recon_name && lent->recon_name[0] ) {
 +		if ( access(lent->recon_name, F_OK) == 0 ) {
 +			av_log(avctx, AV_LOG_ERROR, "File '%s' already existed!\n", lent->recon_name);
-+			LENT_encoder_close( lent->enc );
++			lenthevcenc_destroy( lent->enc );
 +			lent->enc = NULL;
 +			return AVERROR(EINVAL);
 +		}
 +		lent->recon_file = fopen(lent->recon_name, "wb");
 +		if ( NULL == lent->recon_file ) {
 +			av_log(avctx, AV_LOG_ERROR, "Couldn't create output recon file: %s\n", strerror(errno));
-+			LENT_encoder_close( lent->enc );
++			lenthevcenc_destroy( lent->enc );
 +			lent->enc = NULL;
 +			return AVERROR(EINVAL);
 +		}
-+		if ( lent->param.i_bframe > 0 ) {
-+			lent->recon_reorder_size = lent->param.i_bframe;
-+			lent->recon_reorder_pics = av_mallocz(sizeof(LENT_picture_t) * lent->recon_reorder_size);
++		/*if ( lent->param.i_bframe > 0 )*/ {
++			lent->recon_reorder_size = 3; // lent->param.i_bframe; // to do ...
++			lent->recon_reorder_pics = av_mallocz(sizeof(LENTPIC) * lent->recon_reorder_size);
 +			if ( NULL == lent->recon_reorder_pics ) {
 +				av_log(avctx, AV_LOG_ERROR, "Error allocating reconstruction reorder buffer\n");
-+				LENT_encoder_close( lent->enc );
++				lenthevcenc_destroy( lent->enc );
 +				lent->enc = NULL;
 +				return AVERROR(ENOMEM);
 +			}
 +			for ( idx = 0; idx < lent->recon_reorder_size; idx++ ) {
-+				if ( LENT_picture_alloc(&lent->recon_reorder_pics[idx], avctx->width, avctx->height) < 0 ) {
++				if ( alloc_pic(&lent->recon_reorder_pics[idx], avctx->width, avctx->height) < 0 ) {
 +					av_log(avctx, AV_LOG_ERROR, "Error allocating reconstruction picture buffer\n");
-+					LENT_encoder_close( lent->enc );
++					lenthevcenc_destroy( lent->enc );
 +					lent->enc = NULL;
 +					return AVERROR(ENOMEM);
 +				}
@@ -1658,14 +1679,13 @@ index 0000000..cc60630
 +	}
 +	// info
 +	av_log(avctx, AV_LOG_VERBOSE, "Lentoid HEVC Encoder initialize successfully\n");
-+	av_log(avctx, AV_LOG_VERBOSE, "compatibility=HM%.1f, size=%dx%d, preset=%s, thread=%d, wpp=%d(%d), sei=%d, log=%d, idr_peroid=%d, %s=%d%s, bframe=%d, hierach_bframe=%d, delay=%d, recon=%s\n",
-+	       lent->param.i_compatibility / 10.0, lent->param.spatial[0].i_width, lent->param.spatial[0].i_height,
-+	       preset_name_tbl[preset_idx], lent->param.i_threads, lent->thread_wpp, lent->param.i_threads_wpp,
-+	       lent->param.b_SEI, lent->param.i_log_flag, lent->param.i_idr_max,
-+	       (LENT_RC_CQP == lent->param.rc.i_rc_method) ? "QP" : "bitrate",
-+	       (LENT_RC_CQP == lent->param.rc.i_rc_method) ? lent->param.spatial[0].i_qp[0] : lent->param.spatial[0].i_bitrate[0],
-+	       (LENT_RC_CQP == lent->param.rc.i_rc_method) ? "" : "kbps",
-+	       lent->param.i_bframe, lent->param.i_hierach_bframe, avctx->has_b_frames,
++	av_log(avctx, AV_LOG_VERBOSE, "compatibility=HM%.1f, size=%dx%d, preset=%s, thread=%d, wpp=%d, sei=%d, log=%d, idr_peroid=%d, %s=%d%s, recon=%s\n",
++	       lent->param.compatibility / 10.0, lent->param.width, lent->param.height,
++	       preset_name_tbl[lent->param.preset], lent->param.frame_threads, lent->param.wpp_threads,
++	       lent->param.sei_flag, lent->param.log_level, lent->param.idr_period_max,
++	       (LENTHEVCENC_RCMODE_CQP == lent->param.rc_mode) ? "QP" : "bitrate",
++	       (LENTHEVCENC_RCMODE_CQP == lent->param.rc_mode) ? lent->param.qp : lent->param.bitrate,
++	       (LENTHEVCENC_RCMODE_CQP == lent->param.rc_mode) ? "" : "kbps",
 +	       lent->recon_name ? lent->recon_name : "null");
 +	return 0;
 +}
@@ -1675,13 +1695,13 @@ index 0000000..cc60630
 +	LentHEVCEncContext *lent = avctx->priv_data;
 +	int i;
 +	if ( NULL != lent->enc )
-+		LENT_encoder_close( lent->enc );
++		lenthevcenc_destroy( lent->enc );
 +	if ( NULL != avctx->extradata )
 +		av_freep(&avctx->extradata);
 +	if ( NULL != lent->recon_reorder_pics ) {
 +		flush_recon(avctx);
 +		for ( i = 0; i < lent->recon_reorder_size; i++ )
-+			LENT_picture_free(&lent->recon_reorder_pics[i]);
++			free_pic(&lent->recon_reorder_pics[i]);
 +		av_freep(&lent->recon_reorder_pics);
 +	}
 +	if ( NULL != lent->recon_file )
@@ -1695,51 +1715,80 @@ index 0000000..cc60630
 +				const AVFrame *frame, int *got_packet)
 +{
 +	LentHEVCEncContext *lent = avctx->priv_data;
-+	LENT_picture_t _pic, *pic = NULL, pic_out;
-+	LENT_nal_t *nal;
-+	int nal_count, nal_size, i, ret;
++	LENTPIC rec_pic;
++	int _in_stride[3], *in_stride, out_bs_len;
++	uint8_t *_in_plane[3], **in_plane, *out_bs_ptr;
++	int64_t in_pts, out_pts;
++	lenthevcenc_encode_param param;
++	int ret;
++	/* get input frame */
++	in_stride = NULL;
++	in_plane = NULL;
++	in_pts = AV_NOPTS_VALUE;
++	memset(&param, 0, sizeof(param));
++	param.size = sizeof(param);
 +	if ( NULL != frame ) {
-+		pic = &_pic;
-+		pic->i_type =
-+			frame->pict_type == AV_PICTURE_TYPE_I ? LENT_PIC_IDR :
-+			frame->pict_type == AV_PICTURE_TYPE_P ? LENT_PIC_P :
-+			frame->pict_type == AV_PICTURE_TYPE_B ? LENT_PIC_B : LENT_PIC_PENDING;
-+		pic->i_pts = frame->pts;
-+		pic->i_dts = 0; // pic->i_dts = frame->pkt_dts;	// fix me !
-+		pic->img.i_width[0] = avctx->width;
-+		pic->img.i_height[0] = avctx->height;
-+		pic->img.i_width[1] = pic->img.i_width[2] = pic->img.i_width[0] / 2;
-+		pic->img.i_height[1] = pic->img.i_height[2] = pic->img.i_height[0] / 2;
-+		for ( i = 0; i < 3; i++ ) {
-+			pic->img.i_stride[i] = frame->linesize[i];
-+			pic->img.plane[i] = frame->data[i];
++		in_stride = _in_stride;
++		_in_stride[0] = frame->linesize[0];
++		_in_stride[1] = frame->linesize[1];
++		_in_stride[2] = frame->linesize[2];
++		in_plane = _in_plane;
++		_in_plane[0] = frame->data[0];
++		_in_plane[1] = frame->data[1];
++		_in_plane[2] = frame->data[2];
++		in_pts = frame->pts;
++		if ( AV_PICTURE_TYPE_NONE != frame->pict_type ) {
++			if ( AV_PICTURE_TYPE_I == frame->pict_type )
++				param.frame_type = LENTHEVCENC_Frame_IDR;
++			else if ( AV_PICTURE_TYPE_P == frame->pict_type )
++				param.frame_type = LENTHEVCENC_Frame_P;
++			else if ( AV_PICTURE_TYPE_B == frame->pict_type )
++				param.frame_type = LENTHEVCENC_Frame_B;
++			else {
++				av_log(avctx, AV_LOG_WARNING, "Unsupported picture type %d!",
++					frame->pict_type);
++			}
 +		}
 +	}
-+	nal_count = nal_size = 0;
-+	memset(&pic_out, 0, sizeof(pic_out));
-+	if ( !(NULL == frame && !LENT_encoder_encoding(lent->enc)) ) do {
-+		nal_size = LENT_encoder_encode( lent->enc, &nal, &nal_count, pic, &pic_out );
-+		if ( nal_size < 0 )
++	/* encode */
++	out_pts = AV_NOPTS_VALUE;
++	out_bs_len = 0;
++	if ( !(NULL == frame && !lenthevcenc_is_encoding(lent->enc)) ) do {
++		out_bs_len = lenthevcenc_encode_frame( lent->enc,
++						       in_stride, (void**)in_plane, in_pts,
++						       &param,
++						       (void**)&out_bs_ptr, &out_pts,
++						       rec_pic.stride, (void**)rec_pic.data);
++		if ( out_bs_len < 0 )
 +			return -1;
-+		if ( nal_size > 0 ) {
-+			if ( (ret = ff_alloc_packet2(avctx, pkt, nal_size)) < 0 )
++		if ( out_bs_len > 0 ) {
++			if ( (ret = ff_alloc_packet2(avctx, pkt, out_bs_len)) < 0 )
 +				return ret;
-+			memcpy(pkt->data, nal->p_payload, nal_size);
++			memcpy(pkt->data, out_bs_ptr, out_bs_len);
 +			if ( NULL != lent->recon_file ) {
-+				ret = output_recon(avctx, &pic_out);
++				rec_pic.width = avctx->width;
++				rec_pic.height = avctx->height;
++				rec_pic.pts = out_pts;
++				ret = output_recon(avctx, &rec_pic);
 +				if ( 0 != ret )
 +					return ret;
 +			}
 +			break;
 +		}
-+	} while ( NULL == frame && LENT_encoder_encoding(lent->enc) );	// flush
-+	pkt->pts = pic_out.i_pts;
-+	pkt->dts = AV_NOPTS_VALUE; // pic_out.i_dts; // fix me !
-+	if ( LENT_PIC_IDR == pic_out.i_type )
++	} while ( NULL == frame && lenthevcenc_is_encoding(lent->enc) );	// flush
++	pkt->pts = out_pts;
++	pkt->dts = AV_NOPTS_VALUE; // fix me !
++	if ( LENTHEVCENC_Frame_IDR == param.frame_type || LENTHEVCENC_Frame_CDR == param.frame_type )
 +		pkt->flags |= AV_PKT_FLAG_KEY;
-+	*got_packet = (nal_size > 0) ? 1 : 0;
-+	if ( nal_size > 0 )
-+		av_log(avctx, AV_LOG_DEBUG, "got packet, pts = %s, dts = %s, size = %d\n", av_ts2str(pkt->pts), av_ts2str(pkt->dts), nal_size);
++	*got_packet = (out_bs_len > 0) ? 1 : 0;
++	if ( out_bs_len > 0 ) {
++		static const char* type_name_tbl[] = {
++			"auto", "IDR ", "CDR ", "I   ", "P   ", "Bref", "B   "
++		};
++		av_log(avctx, AV_LOG_DEBUG, "got packet, type = %s, pts = %s, dts = %s, size = %d\n",
++		       param.frame_type<COUNTOF(type_name_tbl)?type_name_tbl[param.frame_type]:"?   ",
++		       av_ts2str(pkt->pts), av_ts2str(pkt->dts), out_bs_len);
++	}
 +	return 0;
 +}
 +
@@ -1750,7 +1799,7 @@ index 0000000..cc60630
 +	{ "preset", "Set the encoding preset (\"ultraslow\", \"slow\", \"medium\", \"fast\", \"ultrafast\")",
 +	  OFFSET(preset_name), AV_OPT_TYPE_STRING, { .str = "ultraslow" }, 0, 0, VE },
 +	{ "wpp",    "Wavefront Parallel Processing",
-+	  OFFSET(thread_wpp), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 32, VE },
++	  OFFSET(thread_wpp), AV_OPT_TYPE_INT, { .i64 = 1 }, 1, 64, VE },
 +	{ "disable_sei", "Disable output SEI NALU",
 +	  OFFSET(disable_sei), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
 +	{ "HM_compatibility", "Compatible version of HM, \"9.1\" for HM9.1, \"12\" for HM12, Etc., \"last\" specify the latest version supported",
@@ -1781,6 +1830,13 @@ index 0000000..cc60630
 +	.version    = LIBAVUTIL_VERSION_INT,
 +};
 +
++static const AVCodecDefault lenthevc_enc_defaults[] = {
++	{ "threads",    AV_STRINGIFY(LENTHEVCENC_THREADS_DEFAULT) },
++	{ "b",          "1200k" },
++	{ "keyint_min", "200" },
++	{ NULL },
++};
++
 +AVCodec ff_liblenthevc_encoder = {
 +	.name		= "liblenthevc",
 +	.type		= AVMEDIA_TYPE_VIDEO,
@@ -1793,6 +1849,7 @@ index 0000000..cc60630
 +	.long_name	= NULL_IF_CONFIG_SMALL("Strongene Lentoid HEVC"),
 +	.pix_fmts	= (const enum AVPixelFormat[]){ AV_PIX_FMT_YUV420P, PIX_FMT_NONE },
 +	.priv_class	= &lenthevc_enc_class,
++	.defaults       = lenthevc_enc_defaults,
 +};
 +
 +AVCodec ff_liblenthevchm10_encoder = {
@@ -1807,6 +1864,7 @@ index 0000000..cc60630
 +	.long_name	= NULL_IF_CONFIG_SMALL("Strongene Lentoid HEVC (HM10.0)"),
 +	.pix_fmts	= (const enum AVPixelFormat[]){ AV_PIX_FMT_YUV420P, PIX_FMT_NONE },
 +	.priv_class	= &lenthevchm10_enc_class,
++	.defaults       = lenthevc_enc_defaults,
 +};
 +
 +AVCodec ff_liblenthevchm91_encoder = {
@@ -1821,6 +1879,7 @@ index 0000000..cc60630
 +	.long_name	= NULL_IF_CONFIG_SMALL("Strongene Lentoid HEVC (HM9.1)"),
 +	.pix_fmts	= (const enum AVPixelFormat[]){ AV_PIX_FMT_YUV420P, PIX_FMT_NONE },
 +	.priv_class	= &lenthevchm91_enc_class,
++	.defaults       = lenthevc_enc_defaults,
 +};
 diff --git a/libavformat/Makefile b/libavformat/Makefile
 index cc4a4cb..56e01ef 100644
