@@ -33,7 +33,6 @@ public class RecordingActivity extends Activity {
 	AudioRecord mAudioRecord;
 	byte[] mAudioBuffer;
 	Thread mAudioThread;
-
 	class AudioRecordThread extends Thread {
 		public void run() {
 			try {
@@ -140,12 +139,22 @@ public class RecordingActivity extends Activity {
 		mCamera.setPreviewCallback(new PreviewCallback() {
 			@Override
 			public void onPreviewFrame(byte[] data, Camera cam) {
+				Camera.Parameters p = mCamera.getParameters();
+				Size s = p.getPreviewSize();
+				 
 				long beginTime = System.currentTimeMillis();
 				native_recorder_encode_video(data);
 				long endTime = System.currentTimeMillis();
 				Log.d(TAG, "encoding time: " + (endTime - beginTime) + " ms");
 				encodingTime+=endTime - beginTime;
 				encodingFrame+=1;
+				if (encodingTime>1000)
+				{
+					double fps=encodingFrame*1000/(double)encodingTime;
+					mInfoText.setText("recording... video size: " + s.width + "x" + s.height+"    "+"FPS:"+String.format("%.2f",fps) );
+					encodingTime=0;
+					encodingFrame=0;
+				}
 			}
 
 		});
@@ -156,7 +165,7 @@ public class RecordingActivity extends Activity {
 
 		mRecording = true;
 
-		mInfoText.setText("recording... video size: " + s.width + "x" + s.height);
+		mInfoText.setText("recording... video size: " + s.width + "x" + s.height+"    "+"FPS: waiting");
 		mControlButton.setText(R.string.stop);
 
 	}
