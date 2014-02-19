@@ -13,18 +13,6 @@ extern "C" {
 
 #define LOG_TAG "VideoRecorder"
 
-static int write_frame(AVFormatContext *fmt_ctx, const AVRational *time_base, AVStream *st, AVPacket *pkt)
-{
-    /* rescale output packet timestamp values from codec to stream timebase */
-    pkt->pts = av_rescale_q_rnd(pkt->pts, *time_base, st->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
-    pkt->dts = av_rescale_q_rnd(pkt->dts, *time_base, st->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
-    pkt->duration = av_rescale_q(pkt->duration, *time_base, st->time_base);
-    pkt->stream_index = st->index;
-
-    /* Write the compressed frame to the media file. */
-    return av_interleaved_write_frame(fmt_ctx, pkt);
-}
-
 // ffmpeg calls this back, used for log
 static void ffmpeg_log_callback (void* ptr, int level, const char* fmt, va_list vl) {
 
@@ -131,6 +119,8 @@ int VideoRecorder::open(const char *file, bool hasAudio)
 		LOGE("write format header failed \n");
 		return ret;
 	}
+
+	pthread_mutex_init(&write_mutex, NULL);
 
 	LOGI("recorder open success \n");
 	return 0;
@@ -279,6 +269,7 @@ AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
 		av_opt_set(c->priv_data, "wpp", "4", 0);
 		av_opt_set(c->priv_data, "disable_sei", "0", 0);
 		av_opt_set(c->priv_data, "HM_compatibility", "12", 0);
+		av_opt_set(c->priv_data, "dump_bs", "/sdcard/dump.bs", 0);
 	}
 
 	if (oc->oformat->flags & AVFMT_GLOBALHEADER) {
@@ -425,6 +416,8 @@ int VideoRecorder::close()
 		av_free(oc);
 	}
 
+	pthread_mutex_destroy(&write_mutex);
+
 	LOGI("recorder closed \n");
 	return 0;
 }
@@ -472,6 +465,22 @@ int VideoRecorder::setAudioOptions(AudioSampleFormat fmt, int channels, unsigned
 	audio_bit_rate = bitrate;
 	audio_sample_rate = samplerate;
 	return 0;
+}
+
+int VideoRecorder::write_frame(AVFormatContext *fmt_ctx, const AVRational *time_base, AVStream *st, AVPacket *pkt)
+{
+    /* rescale output packet timestamp values from codec to stream timebase */
+    pkt->pts = av_rescale_q_rnd(pkt->pts, *time_base, st->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
+    pkt->dts = av_rescale_q_rnd(pkt->dts, *time_base, st->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
+    pkt->duration = av_rescale_q(pkt->duration, *time_base, st->time_base);
+    pkt->stream_index = st->index;
+
+    /* Write the compressed frame to the media file. */
+    int ret = -1;
+	pthread_mutex_lock(&write_mutex);
+    ret = av_interleaved_write_frame(fmt_ctx, pkt);
+	pthread_mutex_unlock(&write_mutex);
+	return ret;
 }
 
 int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numBytes)

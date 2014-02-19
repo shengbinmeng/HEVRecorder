@@ -7,6 +7,7 @@ extern "C" {
 #include <libswresample/swresample.h>
 #include <libavutil/error.h>
 }
+#include<pthread.h>
 
 enum VideoFrameFormat {
 	VideoFrameFormatYUV420P=0,
@@ -99,6 +100,10 @@ private:
 
 	AVStream *add_video_stream(enum AVCodecID codec_id);
 	int open_video();
+
+	int write_frame(AVFormatContext *fmt_ctx, const AVRational *time_base, AVStream *st, AVPacket *pkt);
+
+	pthread_mutex_t write_mutex;
 };
 
 
