@@ -27,7 +27,9 @@ public class RecordingActivity extends Activity {
 	boolean mRecording = false;
 	TextView mInfoText = null;
 	Button mControlButton = null;
-
+	long encodingTime=0;
+	long encodingFrame=0;
+	
 	AudioRecord mAudioRecord;
 	byte[] mAudioBuffer;
 	Thread mAudioThread;
@@ -142,6 +144,8 @@ public class RecordingActivity extends Activity {
 				native_recorder_encode_video(data);
 				long endTime = System.currentTimeMillis();
 				Log.d(TAG, "encoding time: " + (endTime - beginTime) + " ms");
+				encodingTime+=endTime - beginTime;
+				encodingFrame+=1;
 			}
 
 		});
@@ -177,7 +181,9 @@ public class RecordingActivity extends Activity {
 					Toast.LENGTH_SHORT).show();
 		}
 		mCamera.setPreviewCallback(null);
-
+		Log.d(TAG, "Total encoding time: " + (encodingTime) + " ms");
+		Log.d(TAG, "Total encoding frame: " + (encodingFrame));
+		Log.d(TAG, "FPS: " + (encodingFrame*1000/encodingTime));
 		mInfoText.setText("");
 		mControlButton.setText(R.string.start);
 	}
