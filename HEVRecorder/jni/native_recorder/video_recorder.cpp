@@ -269,7 +269,7 @@ AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
 		av_opt_set(c->priv_data, "wpp", "4", 0);
 		av_opt_set(c->priv_data, "disable_sei", "0", 0);
 		av_opt_set(c->priv_data, "HM_compatibility", "12", 0);
-		av_opt_set(c->priv_data, "dump_bs", "/sdcard/dump.bs", 0);
+		//av_opt_set(c->priv_data, "dump_bs", "/sdcard/dump.bs", 0);
 	}
 
 	if (oc->oformat->flags & AVFMT_GLOBALHEADER) {
