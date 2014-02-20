@@ -26,7 +26,7 @@ int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height,jstr
 	  LOGD("sd NULL");
 	}
 	strftime(timenow, 100, "%Y-%m-%d-%H-%M-%S", localtime (&now));
-	sprintf(filename, "%s\/record-%s.flv",data, timenow);
+	sprintf(filename, "%s/record-%s.flv",data, timenow);
 	ret = recorder->open(filename, true);
 	if (ret < 0) {
 		LOGE("open recorder failed %s \n",data);
