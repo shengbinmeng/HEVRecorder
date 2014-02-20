@@ -1,5 +1,7 @@
 package pku.shengbin.hevrecorder;
 
+import java.io.File;
+
 import android.app.Activity;
 import android.hardware.Camera;
 import android.hardware.Camera.PreviewCallback;
@@ -8,6 +10,7 @@ import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Bundle;
+import android.os.Environment;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
@@ -33,6 +36,8 @@ public class RecordingActivity extends Activity {
 	AudioRecord mAudioRecord;
 	byte[] mAudioBuffer;
 	Thread mAudioThread;
+	
+	String SDdir;
 	class AudioRecordThread extends Thread {
 		public void run() {
 			try {
@@ -55,7 +60,7 @@ public class RecordingActivity extends Activity {
 		}
 	};
 
-	private native int native_recorder_open(int width, int height);
+	private native int native_recorder_open(int width, int height,String SDdir);
 
 	private native int native_recorder_encode_audio(byte[] data);
 
@@ -122,13 +127,28 @@ public class RecordingActivity extends Activity {
 		});
 
 	}
-
+	//获取sd卡位置
+	private String getSDPath(){ 
+	       File sdDir = null; 
+	       boolean sdCardExist = Environment.getExternalStorageState()   
+	                           .equals(Environment.MEDIA_MOUNTED);   //判断sd卡是否存在 
+	       if   (sdCardExist||Environment.isExternalStorageEmulated())   
+	       {                               
+	    	 
+	         sdDir = Environment.getExternalStorageDirectory();//获取跟目录 
+	         Log.d(TAG,"test in get sd card"+sdDir.toString());
+	       } 
+	       return sdDir.toString(); 
+	       
+	}
 	private void startRecording() {
 		// open the recorder
 		Camera.Parameters p = mCamera.getParameters();
 		Size s = p.getPreviewSize();
-
-		int ret = native_recorder_open(s.width, s.height);
+        SDdir=getSDPath();
+        Log.d(TAG,"test in get sd card"+SDdir);
+        
+		int ret = native_recorder_open(s.width, s.height,SDdir);
 		if (ret < 0) {
 			Toast.makeText(RecordingActivity.this, "Open recorder failed!",
 					Toast.LENGTH_SHORT).show();
