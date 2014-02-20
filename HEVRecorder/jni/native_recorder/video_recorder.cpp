@@ -262,7 +262,7 @@ AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
 	c->time_base.num = 1;
 	c->time_base.den = 15;
 	c->gop_size = 25;
-	c->thread_count = 2;
+	c->thread_count = 5;
 	c->pix_fmt = video_pixfmt;
 	if (codec_id == AV_CODEC_ID_HEVC) {
 		av_opt_set(c->priv_data, "preset", "ultrafast", 0);
