@@ -127,15 +127,14 @@ public class RecordingActivity extends Activity {
 		});
 
 	}
-	//获取sd卡位置
+	
 	private String getSDPath(){ 
 	       File sdDir = null; 
 	       boolean sdCardExist = Environment.getExternalStorageState()   
-	                           .equals(Environment.MEDIA_MOUNTED);   //判断sd卡是否存在 
+	                           .equals(Environment.MEDIA_MOUNTED);   
 	       if   (sdCardExist||Environment.isExternalStorageEmulated())   
 	       {                               
-	    	 
-	         sdDir = Environment.getExternalStorageDirectory();//获取跟目录 
+	         sdDir = Environment.getExternalStorageDirectory();
 	         Log.d(TAG,"test in get sd card"+sdDir.toString());
 	       } 
 	       return sdDir.toString(); 
