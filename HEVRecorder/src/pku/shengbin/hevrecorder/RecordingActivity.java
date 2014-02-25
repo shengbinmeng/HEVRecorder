@@ -144,17 +144,15 @@ public class RecordingActivity extends Activity {
 		});
 
 	}
-	//获取sd卡位置
-	private String getSDPath(){ 
+	
+	private String getSDPath() { 
 	       File sdDir = null; 
 	       boolean sdCardExist = Environment.getExternalStorageState()   
-	                           .equals(Environment.MEDIA_MOUNTED);   //判断sd卡是否存在 
-	       if   (sdCardExist||Environment.isExternalStorageEmulated())   
-	       {                               
-	    	 
-	         sdDir = Environment.getExternalStorageDirectory();//获取跟目录 
-	         Log.d(TAG,"test in get sd card"+sdDir.toString());
-	       } 
+	                           .equals(Environment.MEDIA_MOUNTED);   
+	       if (sdCardExist || Environment.isExternalStorageEmulated()) {                               
+	    	   sdDir = Environment.getExternalStorageDirectory();
+	    	   Log.d(TAG,"test in get sd card"+sdDir.toString());
+	       }
 	       return sdDir.toString(); 
 	       
 	}
@@ -183,14 +181,13 @@ public class RecordingActivity extends Activity {
 				native_recorder_encode_video(data);
 				long endTime = System.currentTimeMillis();
 				Log.d(TAG, "encoding time: " + (endTime - beginTime) + " ms");
-				encodingTime+=endTime - beginTime;
-				encodingFrame+=1;
-				if (encodingTime>1000)
-				{
-					double fps=encodingFrame*1000/(double)encodingTime;
-					mInfoText.setText("recording... video size: " + s.width + "x" + s.height+"    "+"FPS:"+String.format("%.2f",fps) );
-					encodingTime=0;
-					encodingFrame=0;
+				encodingTime += endTime - beginTime;
+				encodingFrame += 1;
+				if (encodingTime > 1000) {
+					double fps = encodingFrame*1000 / (double)encodingTime;
+					mInfoText.setText("recording... video size: " + s.width + "x" + s.height+"    "+"FPS:"+String.format("%.2f",fps));
+					encodingTime = 0;
+					encodingFrame = 0;
 				}
 			}
 
