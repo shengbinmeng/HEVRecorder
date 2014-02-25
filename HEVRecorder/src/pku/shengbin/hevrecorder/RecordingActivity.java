@@ -3,6 +3,7 @@ package pku.shengbin.hevrecorder;
 import java.io.File;
 
 import android.app.Activity;
+import android.app.ProgressDialog;
 import android.hardware.Camera;
 import android.hardware.Camera.PreviewCallback;
 import android.hardware.Camera.Size;
@@ -11,6 +12,8 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
@@ -38,6 +41,8 @@ public class RecordingActivity extends Activity {
 	Thread mAudioThread;
 	
 	String SDdir;
+	private Handler handler;
+	private ProgressDialog pd;
 	class AudioRecordThread extends Thread {
 		public void run() {
 			try {
@@ -114,10 +119,22 @@ public class RecordingActivity extends Activity {
 		mInfoText = (TextView) findViewById(R.id.text_info);
 		mInfoText.setText("");
 		mControlButton = (Button) findViewById(R.id.button_control);
+		
+		handler =new Handler(){
+			   @Override
+			   //当有消息发送出来的时候就执行Handler的这个方法
+			   public void handleMessage(Message msg){
+			      super.handleMessage(msg);
+			      //只要执行到这里就关闭对话框
+			      pd.dismiss();
+
+			   }
+			};
 		mControlButton.setOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View arg0) {
 				if (mRecording) {
+					pd= ProgressDialog.show(RecordingActivity.this, "waiting encoder", "processing...");
 					stopRecording();
 				} else {
 					startRecording();
@@ -192,23 +209,31 @@ public class RecordingActivity extends Activity {
 
 	private void stopRecording() {
 		mRecording = false;
-
+		
 		// wait the audio thread to end before close native recorder
+
 		try {
 			mAudioThread.join();
 		} catch (InterruptedException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-
+		 new Thread(){
+	         public void run(){
+	            //在这里执行长耗时方法
+	        	int ret = native_recorder_close();
+	     		if (ret < 0) {
+	     			Toast.makeText(
+	     					RecordingActivity.this,
+	     					"Close the recorder failed. The recorded file may be wrong.",
+	     					Toast.LENGTH_SHORT).show();
+	     		}
+	            //执行完毕后给handler发送一个消息
+	            handler.sendEmptyMessage(0);
+	         }
+	      }.start();
 		// close the recorder
-		int ret = native_recorder_close();
-		if (ret < 0) {
-			Toast.makeText(
-					RecordingActivity.this,
-					"Close the recorder failed. The recorded file may be wrong.",
-					Toast.LENGTH_SHORT).show();
-		}
+		
 		mCamera.setPreviewCallback(null);
 		Log.d(TAG, "Total encoding time: " + (encodingTime) + " ms");
 		Log.d(TAG, "Total encoding frame: " + (encodingFrame));

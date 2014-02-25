@@ -11,5 +11,6 @@
     <string name="stop">Stop</string>
     <string name="start">Start</string>
     <string name="placeholder">Here is some text.</string>
+    <string name="Waiting_Encoder">Waiting Encoder</string>
     
 </resources>
