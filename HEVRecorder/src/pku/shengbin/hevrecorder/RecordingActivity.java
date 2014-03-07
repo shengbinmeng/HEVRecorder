@@ -1,6 +1,9 @@
 package pku.shengbin.hevrecorder;
 
 import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 import android.app.Activity;
 import android.app.ProgressDialog;
@@ -12,8 +15,6 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Message;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
@@ -28,21 +29,20 @@ import android.widget.FrameLayout.LayoutParams;
 public class RecordingActivity extends Activity {
 
 	private final static String TAG = "RecordingActivity";
-	private Camera mCamera;
-	private CameraPreview mPreview;
+	private Camera mCamera = null;
+	private CameraPreview mPreview = null;
 	boolean mRecording = false;
 	TextView mInfoText = null;
 	Button mControlButton = null;
-	long encodingTime=0;
-	long encodingFrame=0;
 	
-	AudioRecord mAudioRecord;
-	byte[] mAudioBuffer;
-	Thread mAudioThread;
+	AudioRecord mAudioRecord = null;
+	byte[] mAudioBuffer = null;
+	Thread mAudioThread = null;
 	
-	String SDdir;
-	private Handler handler;
-	private ProgressDialog pd;
+	private long mStartTime = 0;
+	private long mFrameCount = 0;
+	private ProgressDialog mProgressDlg;
+	
 	class AudioRecordThread extends Thread {
 		public void run() {
 			try {
@@ -66,11 +66,8 @@ public class RecordingActivity extends Activity {
 	};
 
 	private native int native_recorder_open(int width, int height,String SDdir);
-
 	private native int native_recorder_encode_audio(byte[] data);
-
 	private native int native_recorder_encode_video(byte[] data);
-
 	private native int native_recorder_close();
 
 	static {
@@ -120,21 +117,10 @@ public class RecordingActivity extends Activity {
 		mInfoText.setText("");
 		mControlButton = (Button) findViewById(R.id.button_control);
 		
-		handler =new Handler(){
-			   @Override
-			   //当有消息发送出来的时候就执行Handler的这个方法
-			   public void handleMessage(Message msg){
-			      super.handleMessage(msg);
-			      //只要执行到这里就关闭对话框
-			      pd.dismiss();
-
-			   }
-			};
 		mControlButton.setOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View arg0) {
 				if (mRecording) {
-					pd= ProgressDialog.show(RecordingActivity.this, "waiting encoder", "processing...");
 					stopRecording();
 				} else {
 					startRecording();
@@ -145,13 +131,12 @@ public class RecordingActivity extends Activity {
 
 	}
 	
-	private String getSDPath() { 
+	private String getSdPath() { 
 	       File sdDir = null; 
 	       boolean sdCardExist = Environment.getExternalStorageState()   
 	                           .equals(Environment.MEDIA_MOUNTED);   
 	       if (sdCardExist || Environment.isExternalStorageEmulated()) {                               
 	    	   sdDir = Environment.getExternalStorageDirectory();
-	    	   Log.d(TAG,"test in get sd card"+sdDir.toString());
 	       }
 	       return sdDir.toString(); 
 	       
@@ -160,37 +145,41 @@ public class RecordingActivity extends Activity {
 		// open the recorder
 		Camera.Parameters p = mCamera.getParameters();
 		Size s = p.getPreviewSize();
-        SDdir=getSDPath();
-        Log.d(TAG,"test in get sd card"+SDdir);
-        
-		int ret = native_recorder_open(s.width, s.height,SDdir);
+		String sdPath = getSdPath();
+		File dir = new File(sdPath + "/HEVRecorder");
+		if (!dir.exists()) {
+			dir.mkdir();
+		}
+		String timeNow = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.getDefault()).format(new Date());
+		String filePath = String.format("%s/record-%s.flv", dir.getPath(), timeNow);
+		int ret = native_recorder_open(s.width, s.height, filePath);
 		if (ret < 0) {
 			Toast.makeText(RecordingActivity.this, "Open recorder failed!",
 					Toast.LENGTH_SHORT).show();
 			return;
 		}
-
+		
+		mStartTime = System.currentTimeMillis();
+		
 		// encode every video frame
 		mCamera.setPreviewCallback(new PreviewCallback() {
 			@Override
-			public void onPreviewFrame(byte[] data, Camera cam) {
-				Camera.Parameters p = mCamera.getParameters();
-				Size s = p.getPreviewSize();
-				 
+			public void onPreviewFrame(byte[] data, Camera cam) {				 
 				long beginTime = System.currentTimeMillis();
 				native_recorder_encode_video(data);
-				long endTime = System.currentTimeMillis();
-				Log.d(TAG, "encoding time: " + (endTime - beginTime) + " ms");
-				encodingTime += endTime - beginTime;
-				encodingFrame += 1;
-				if (encodingTime > 1000) {
-					double fps = encodingFrame*1000 / (double)encodingTime;
-					mInfoText.setText("recording... video size: " + s.width + "x" + s.height+"    "+"FPS:"+String.format("%.2f",fps));
-					encodingTime = 0;
-					encodingFrame = 0;
+				long currentTime = System.currentTimeMillis();
+				Log.d(TAG, "encoding time: " + (currentTime - beginTime) + " ms");
+				mFrameCount += 1;
+				// update FPS every 1000ms
+				if (currentTime - mStartTime > 1000) {
+					Camera.Parameters p = mCamera.getParameters();
+					Size s = p.getPreviewSize();
+					double fps = (double)mFrameCount / (currentTime - mStartTime);
+					mInfoText.setText(String.format("recording... video size: %dx%d, FPS: %.2f", s.width, s.height, fps));
+					mStartTime = currentTime;
+					mFrameCount = 0;
 				}
 			}
-
 		});
 
 		// start audio recording
@@ -199,7 +188,7 @@ public class RecordingActivity extends Activity {
 
 		mRecording = true;
 
-		mInfoText.setText("recording... video size: " + s.width + "x" + s.height+"    "+"FPS: waiting");
+		mInfoText.setText(String.format("recording... video size: %dx%d, FPS: waiting", s.width, s.height));
 		mControlButton.setText(R.string.stop);
 
 	}
@@ -207,34 +196,38 @@ public class RecordingActivity extends Activity {
 	private void stopRecording() {
 		mRecording = false;
 		
-		// wait the audio thread to end before close native recorder
+		mProgressDlg = ProgressDialog.show(RecordingActivity.this, "Please wait", "The recorder is processing the last few frames, please wait for a moment...");
 
+		// wait the audio thread to end before close native recorder
 		try {
 			mAudioThread.join();
 		} catch (InterruptedException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		 new Thread(){
-	         public void run(){
-	            //在这里执行长耗时方法
-	        	int ret = native_recorder_close();
-	     		if (ret < 0) {
-	     			Toast.makeText(
-	     					RecordingActivity.this,
-	     					"Close the recorder failed. The recorded file may be wrong.",
-	     					Toast.LENGTH_SHORT).show();
-	     		}
-	            //执行完毕后给handler发送一个消息
-	            handler.sendEmptyMessage(0);
-	         }
-	      }.start();
+		
 		// close the recorder
+		// we need to start a new thread to do this, or the progress dialog won't show
+		new Thread(){
+			public void run(){
+				int ret = native_recorder_close();
+				if (ret < 0) {
+					Toast.makeText(
+	 				RecordingActivity.this,
+	 				"Close the recorder failed. The recorded file may be wrong.",
+	 				Toast.LENGTH_SHORT).show();
+				}
+				
+				runOnUiThread(new Runnable() {
+				    @Override
+				    public void run() {
+						mProgressDlg.dismiss();
+				    }
+				});
+			}
+		}.start();
 		
 		mCamera.setPreviewCallback(null);
-		Log.d(TAG, "Total encoding time: " + (encodingTime) + " ms");
-		Log.d(TAG, "Total encoding frame: " + (encodingFrame));
-		Log.d(TAG, "FPS: " + (encodingFrame*1000/encodingTime));
 		mInfoText.setText("");
 		mControlButton.setText(R.string.start);
 	}
@@ -248,7 +241,6 @@ public class RecordingActivity extends Activity {
 			// Camera is not available (in use or does not exist)
 			e.printStackTrace();
 		}
-
 		return c;
 	}
 
@@ -260,7 +252,6 @@ public class RecordingActivity extends Activity {
 			mCamera = getCameraInstance();
 			mPreview.setCamera(mCamera);
 		}
-
 	}
 
 	@Override
