@@ -174,7 +174,7 @@ public class RecordingActivity extends Activity {
 				if (currentTime - mStartTime > 1000) {
 					Camera.Parameters p = mCamera.getParameters();
 					Size s = p.getPreviewSize();
-					double fps = (double)mFrameCount / (currentTime - mStartTime);
+					double fps = mFrameCount / ((currentTime - mStartTime)/1000.0);
 					mInfoText.setText(String.format("recording... video size: %dx%d, FPS: %.2f", s.width, s.height, fps));
 					mStartTime = currentTime;
 					mFrameCount = 0;
