@@ -40,9 +40,7 @@ public:
 	VideoRecorder();
 	virtual ~VideoRecorder();
 
-	// Return true on success, false on failure
-
-	// Call these first
+	// call these first
 	int setVideoOptions(VideoFrameFormat fmt, int width, int height, unsigned long bitrate);
 	int setAudioOptions(AudioSampleFormat fmt, int channels, unsigned long samplerate, unsigned long bitrate);
 
@@ -50,10 +48,10 @@ public:
 
 	int close();
 
-	// Supply a video frame
+	// supply a video frame
 	int supplyVideoFrame(const void* frame, unsigned long numBytes, unsigned long timestamp);
 
-	// Supply audio samples
+	// supply audio samples
 	int supplyAudioSamples(const void* samples, unsigned long numSamples);
 
 private:
@@ -72,10 +70,10 @@ private:
 	int audio_input_frame_size;
 	unsigned long audio_input_leftover_samples;
 
-	int audio_channels;				// number of channels (2)
+	int audio_channels;					// number of channels (2)
 	unsigned long audio_bit_rate;		// codec's output bitrate
-	unsigned long audio_sample_rate;		// number of samples per second
-	int audio_sample_size;					// size of each sample in bytes (16-bit = 2)
+	unsigned long audio_sample_rate;	// number of samples per second
+	int audio_sample_size;				// size of each sample in bytes (16-bit = 2)
 	AVSampleFormat audio_sample_format;
 	SwrContext *swr_ctx;
 

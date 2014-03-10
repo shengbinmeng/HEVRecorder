@@ -13,7 +13,7 @@ extern "C" {
 
 #define LOG_TAG "VideoRecorder"
 
-// ffmpeg calls this back, used for log
+// FFmpeg calls this back, used for log
 static void ffmpeg_log_callback (void* ptr, int level, const char* fmt, va_list vl) {
 
 	char s[1024];
@@ -92,7 +92,7 @@ int VideoRecorder::open(const char *file, bool hasAudio)
 		audio_st = add_audio_stream(AV_CODEC_ID_AAC);
 	}
 
-	// for debug
+	// dump format information (for debug purpose only)
 	av_dump_format(oc, 0, file, 1);
 
 	ret = open_video();
@@ -255,7 +255,7 @@ AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
 	}
 
 	AVCodecContext *c = st->codec;
-	/* put sample parameters */
+	// now these parameters are hard-coded
 	c->bit_rate = video_bitrate;
 	c->width = video_width;
 	c->height = video_height;
@@ -295,7 +295,7 @@ int VideoRecorder::open_video()
 		return ret;
 	}
 
-	// We assume the encoded frame will be smaller in size than an equivalent raw frame in RGBA8888 format ... a pretty safe assumption!
+	// we assume the encoded frame will be smaller in size than an equivalent raw frame in RGBA8888 format ... a pretty safe assumption!
 	video_pkt_buf_size = c->width * c->height * 4;
 	video_pkt_buf = (uint8_t *)av_malloc(video_pkt_buf_size);
 	if (!video_pkt_buf) {
@@ -469,13 +469,13 @@ int VideoRecorder::setAudioOptions(AudioSampleFormat fmt, int channels, unsigned
 
 int VideoRecorder::write_frame(AVFormatContext *fmt_ctx, const AVRational *time_base, AVStream *st, AVPacket *pkt)
 {
-    /* rescale output packet timestamp values from codec to stream timebase */
+    // rescale output packet timestamp values from codec to stream timebase
     pkt->pts = av_rescale_q_rnd(pkt->pts, *time_base, st->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
     pkt->dts = av_rescale_q_rnd(pkt->dts, *time_base, st->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
     pkt->duration = av_rescale_q(pkt->duration, *time_base, st->time_base);
     pkt->stream_index = st->index;
 
-    /* Write the compressed frame to the media file. */
+    // write the compressed frame to the media file
     int ret = -1;
 	pthread_mutex_lock(&write_mutex);
     ret = av_interleaved_write_frame(fmt_ctx, pkt);

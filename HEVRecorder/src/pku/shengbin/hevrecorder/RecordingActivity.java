@@ -26,6 +26,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.FrameLayout.LayoutParams;
 
+/**
+ * This RecordingActivity is one which really does the work. 
+ * It:
+ * 1) controls the start and stop of recording, from a button click or the activity's life cycle.
+ * 2) loads native libraries and calls the native recording functions.
+ * 3) supplies the audio and video data to native layer, calculates FPS and shows information to the user.
+ */
 public class RecordingActivity extends Activity {
 
 	private final static String TAG = "RecordingActivity";
@@ -41,8 +48,12 @@ public class RecordingActivity extends Activity {
 	
 	private long mStartTime = 0;
 	private long mFrameCount = 0;
-	private ProgressDialog mProgressDlg;
+	private ProgressDialog mProgressDlg = null;
 	
+	/**
+	 * A new thread will be started for the audio recording.
+	 * Because a while loop is needed to continually supply the audio data to native layer.
+	 */
 	class AudioRecordThread extends Thread {
 		public void run() {
 			try {
@@ -85,7 +96,7 @@ public class RecordingActivity extends Activity {
 
 		setContentView(R.layout.activity_recording);
 
-		// audio
+		// audio parameters are set here
 		int sampleRate = 44100;
 		int channels = AudioFormat.CHANNEL_IN_STEREO;
 		int format = AudioFormat.ENCODING_PCM_16BIT;
@@ -121,6 +132,9 @@ public class RecordingActivity extends Activity {
 			@Override
 			public void onClick(View arg0) {
 				if (mRecording) {
+					// only show the dialog when user clicks the Stop button;
+					// when stop in other case (e.g. Home or Back or interrupt), user won't be able to see it
+					mProgressDlg = ProgressDialog.show(RecordingActivity.this, "Please wait", "The recorder is processing the last few frames, please wait for a moment...");
 					stopRecording();
 				} else {
 					startRecording();
@@ -170,7 +184,7 @@ public class RecordingActivity extends Activity {
 				long currentTime = System.currentTimeMillis();
 				Log.d(TAG, "encoding time: " + (currentTime - beginTime) + " ms");
 				mFrameCount += 1;
-				// update FPS every 1000ms
+				// update FPS every 1000ms (i.e. 1s)
 				if (currentTime - mStartTime > 1000) {
 					Camera.Parameters p = mCamera.getParameters();
 					Size s = p.getPreviewSize();
@@ -195,9 +209,6 @@ public class RecordingActivity extends Activity {
 
 	private void stopRecording() {
 		mRecording = false;
-		
-		mProgressDlg = ProgressDialog.show(RecordingActivity.this, "Please wait", "The recorder is processing the last few frames, please wait for a moment...");
-
 		// wait the audio thread to end before close native recorder
 		try {
 			mAudioThread.join();
@@ -207,7 +218,9 @@ public class RecordingActivity extends Activity {
 		}
 		
 		// close the recorder
-		// we need to start a new thread to do this, or the progress dialog won't show
+		// we need to start a new thread to do this, because:
+		// during closing, it will take a while to flush the delayed frames,
+		// if it's executed in the main UI thread, the progress dialog won't show
 		new Thread(){
 			public void run(){
 				int ret = native_recorder_close();
@@ -218,12 +231,15 @@ public class RecordingActivity extends Activity {
 	 				Toast.LENGTH_SHORT).show();
 				}
 				
-				runOnUiThread(new Runnable() {
-				    @Override
-				    public void run() {
-						mProgressDlg.dismiss();
-				    }
-				});
+				if (mProgressDlg != null) {
+					runOnUiThread(new Runnable() {
+					    @Override
+					    public void run() {
+							mProgressDlg.dismiss();
+							mProgressDlg = null;
+					    }
+					});
+				}
 			}
 		}.start();
 		

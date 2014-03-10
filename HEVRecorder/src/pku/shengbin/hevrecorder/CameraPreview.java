@@ -12,6 +12,11 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.FrameLayout.LayoutParams;
 
+/**
+ * This class is a SurfaceView which handles the camera instance and its preview image.
+ * You can setPreviewSize, which sets the image resolution recorded by the camera, 
+ * and setDisplaySize, which change the size of displaying on the screen.
+ */
 public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback {
 
 	private final static String TAG = "CameraPreview";
@@ -45,6 +50,10 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
     	setPreviewSize();
     }
     
+    /**
+     * Set preview size, which is the resolution of the image provided by the camera.
+     * Now the size is hard-coded here.
+     */
     public void setPreviewSize () {
     	Camera.Parameters p = mCamera.getParameters();
     	int min = p.getSupportedPreviewFpsRange().get(0)[0];
@@ -64,6 +73,13 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
     	mCamera.setParameters(p);
     }
     
+    /**
+     * Set display size, which specified how large the image will be displayed on the screen.
+     * The camera preview image will be scale from preview size to display size.
+     * 
+     * @param width the width of the display size
+     * @param height the height of the display size
+     */
     public void setDisplaySize(int width, int height) {
     	LayoutParams params = (LayoutParams) this.getLayoutParams(); 
     	params.gravity = Gravity.CENTER;

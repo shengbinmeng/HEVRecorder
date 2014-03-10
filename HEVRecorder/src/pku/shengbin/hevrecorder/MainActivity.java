@@ -10,6 +10,10 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
 
+/**
+ * The main UI activity. It simply starts RecordingActivity from clicking a button.
+ * The About and Settings menu are also handled here.
+ */
 public class MainActivity extends Activity {
 
     @Override
