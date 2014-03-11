@@ -134,7 +134,7 @@ public class RecordingActivity extends Activity {
 				if (mRecording) {
 					// only show the dialog when user clicks the Stop button;
 					// when stop in other case (e.g. Home or Back or interrupt), user won't be able to see it
-					mProgressDlg = ProgressDialog.show(RecordingActivity.this, "Please wait", "The recorder is processing the last few frames, please wait for a moment...");
+					mProgressDlg = ProgressDialog.show(RecordingActivity.this, "Please wait", "Stopping......");
 					stopRecording();
 				} else {
 					startRecording();
