@@ -6,7 +6,7 @@
 static VideoRecorder *recorder = NULL;
 static int frameCount = 0;
 
-int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height, jstring filePath)
+int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height, jstring path)
 {
 	recorder = new VideoRecorder();
 	int ret = recorder->setAudioOptions(AudioSampleFormatS16, 2, 44100, 64000);
@@ -20,8 +20,9 @@ int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height, jst
 		return ret;
 	}
 
-	const char* filepath = env->GetStringUTFChars(filePath, 0);
+	const char* filepath = env->GetStringUTFChars(path, 0);
 	ret = recorder->open(filepath, true);
+	env->ReleaseStringUTFChars(path, filepath);
 	if (ret < 0) {
 		LOGE("open recorder failed %s \n", filepath);
 		return ret;
