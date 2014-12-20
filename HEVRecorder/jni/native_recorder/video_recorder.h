@@ -55,7 +55,7 @@ public:
 	int supplyAudioSamples(const void* samples, unsigned long numSamples);
 
 private:
-	// audio related vars
+	// audio related
 	AVStream *audio_st;
 	AVFrame *audio_frame;
 	AVPacket audio_pkt;
@@ -77,7 +77,7 @@ private:
 	AVSampleFormat audio_sample_format;
 	SwrContext *swr_ctx;
 
-	// video related vars
+	// video related
 	AVStream *video_st;
 	AVFrame *video_frame;
 	AVPacket video_pkt;

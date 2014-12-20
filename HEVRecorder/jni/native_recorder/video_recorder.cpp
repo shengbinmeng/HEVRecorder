@@ -60,7 +60,7 @@ static void ffmpeg_log_callback (void* ptr, int level, const char* fmt, va_list 
 
 VideoRecorder::VideoRecorder()
 {
-	// audio related vars
+	// audio related
 	audio_st = NULL;
 	audio_frame = NULL;
 	audio_pkt_buf = NULL;
@@ -76,7 +76,7 @@ VideoRecorder::VideoRecorder()
 
 	swr_ctx = NULL;
 
-	// video related vars
+	// video related
 	video_st = NULL;
 	video_frame = NULL;
 	video_pkt_buf = NULL;
@@ -566,7 +566,7 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 			avcodec_fill_audio_frame(audio_frame, c->channels, c->sample_fmt,
 					dst_samples[0], dst_samples_size, 0);
 
-			// decode to get packet
+			// encode to get packet
 			// we need to initialize packet every time so all the values (such as pts) are re-initialized
 			av_init_packet(&audio_pkt);
 			audio_pkt.data = audio_pkt_buf;
@@ -628,7 +628,7 @@ int VideoRecorder::supplyVideoFrame(const void *frameData, unsigned long numByte
 	}
 	video_frame->pts = (timestamp - timestamp_start);
 
-	// decode to get packet
+	// encode to get packet
 	av_init_packet(&video_pkt);
 	video_pkt.data = video_pkt_buf;
 	video_pkt.size = video_pkt_buf_size;
