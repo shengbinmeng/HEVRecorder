@@ -23,12 +23,7 @@
 #include "video_recorder.h"
 
 extern "C" {
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libswresample/swresample.h>
-#include <libavutil/opt.h>
-#include <libavutil/mathematics.h>
-#include <libavutil/timestamp.h>
+#include "libavutil/opt.h"
 }
 
 #define LOG_TAG "VideoRecorder"

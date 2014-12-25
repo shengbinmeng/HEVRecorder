@@ -1,13 +1,22 @@
 #ifndef __VIDEO_RECORDER_H__
 #define __VIDEO_RECORDER_H__
 
+#ifdef __cplusplus
+	#define __STDC_CONSTANT_MACROS
+	#define __STDC_LIMIT_MACROS
+	#ifdef _STDINT_H
+		#undef _STDINT_H
+	#endif
+	#include <stdint.h>
+	#define __STDC_FORMAT_MACROS
+#endif
+
 extern "C" {
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libswresample/swresample.h>
-#include <libavutil/error.h>
+#include "libavformat/avformat.h"
+#include "libavcodec/avcodec.h"
+#include "libswresample/swresample.h"
 }
-#include<pthread.h>
+#include <pthread.h>
 
 enum VideoFrameFormat {
 	VideoFrameFormatYUV420P=0,
