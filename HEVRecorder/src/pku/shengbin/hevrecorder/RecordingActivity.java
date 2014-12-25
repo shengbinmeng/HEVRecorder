@@ -36,6 +36,8 @@ import android.widget.FrameLayout.LayoutParams;
 public class RecordingActivity extends Activity {
 
 	private final static String TAG = "RecordingActivity";
+	private final static boolean HLS_RECORD = true;
+
 	private Camera mCamera = null;
 	private CameraPreview mPreview = null;
 	boolean mRecording = false;
@@ -65,7 +67,13 @@ public class RecordingActivity extends Activity {
 					if (bytesRead < 0) {
 						break;
 					}
-					native_recorder_encode_audio(mAudioBuffer);
+					int ret = native_recorder_encode_audio(mAudioBuffer);
+					if (ret < 0) {
+						stopRecording();
+						Toast.makeText(RecordingActivity.this, "Error while encoding video, recorder stopped.",
+								Toast.LENGTH_SHORT).show();
+						break;
+					}
 				}
 
 				mAudioRecord.stop();
@@ -167,6 +175,9 @@ public class RecordingActivity extends Activity {
 		}
 		String timeNow = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.getDefault()).format(new Date());
 		String filePath = String.format("%s/record-%s.flv", dir.getPath(), timeNow);
+		if (HLS_RECORD) {
+			filePath = String.format("%s/", dir.getPath());
+		}
 		int ret = native_recorder_open(s.width, s.height, filePath);
 		if (ret < 0) {
 			Toast.makeText(RecordingActivity.this, "Open recorder failed!",
@@ -181,7 +192,13 @@ public class RecordingActivity extends Activity {
 			@Override
 			public void onPreviewFrame(byte[] data, Camera cam) {				 
 				long beginTime = System.currentTimeMillis();
-				native_recorder_encode_video(data);
+				int ret = native_recorder_encode_video(data);
+				if (ret < 0) {
+					stopRecording();
+					Toast.makeText(RecordingActivity.this, "Error while encoding video, recorder stopped.",
+							Toast.LENGTH_SHORT).show();
+					return;
+				}
 				long currentTime = System.currentTimeMillis();
 				Log.d(TAG, "encoding time: " + (currentTime - beginTime) + " ms");
 				mFrameCount += 1;

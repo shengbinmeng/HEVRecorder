@@ -53,9 +53,9 @@ public:
 	int setVideoOptions(VideoFrameFormat fmt, int width, int height, unsigned long bitrate);
 	int setAudioOptions(AudioSampleFormat fmt, int channels, unsigned long samplerate, unsigned long bitrate);
 
-	int open(const char* file, bool hasAudio);
+	virtual int open(const char* file, bool hasAudio);
 
-	int close();
+	virtual int close();
 
 	// supply a video frame
 	int supplyVideoFrame(const void* frame, unsigned long numBytes, unsigned long timestamp);
@@ -63,7 +63,7 @@ public:
 	// supply audio samples
 	int supplyAudioSamples(const void* samples, unsigned long numSamples);
 
-private:
+protected:
 	// audio related
 	AVStream *audio_st;
 	AVFrame *audio_frame;
@@ -108,7 +108,7 @@ private:
 	AVStream *add_video_stream(enum AVCodecID codec_id);
 	int open_video();
 
-	int write_frame(AVFormatContext *fmt_ctx, const AVRational *time_base, AVStream *st, AVPacket *pkt);
+	virtual int write_frame(AVFormatContext *fmt_ctx, const AVRational *time_base, AVStream *st, AVPacket *pkt);
 
 	pthread_mutex_t write_mutex;
 };

@@ -19,6 +19,7 @@
 
 #include "jni_utils.h"
 #include "video_recorder.h"
+#include "hls_video_recorder.h"
 
 #define LOG_TAG "native_recorder"
 
@@ -28,6 +29,14 @@ static int frameCount = 0;
 int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height, jstring path)
 {
 	recorder = new VideoRecorder();
+
+	// support HLS
+	const char* p = env->GetStringUTFChars(path, 0);
+	if (p[strlen(p)-1] == '/') {
+		delete recorder;
+		recorder = new HlsVideoRecorder();
+	}
+
 	int ret = recorder->setAudioOptions(AudioSampleFormatS16, 2, 44100, 64000);
 	if (ret < 0) {
 		LOGE("set audio options failed \n");
@@ -41,9 +50,8 @@ int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height, jst
 
 	const char* filepath = env->GetStringUTFChars(path, 0);
 	ret = recorder->open(filepath, true);
-	env->ReleaseStringUTFChars(path, filepath);
 	if (ret < 0) {
-		LOGE("open recorder failed %s \n", filepath);
+		LOGE("open recorder failed (%s) \n", filepath);
 		return ret;
 	}
 	frameCount = 0;
