@@ -126,6 +126,7 @@ public class RecordingActivity extends Activity {
 		layoutButton.bringToFront();
 		mInfoText = (TextView) findViewById(R.id.text_info);
 		mInfoText.setText("");
+		mInfoText.setTextSize(48);
 		mControlButton = (Button) findViewById(R.id.button_control);
 		
 		mControlButton.setOnClickListener(new View.OnClickListener() {
@@ -189,7 +190,7 @@ public class RecordingActivity extends Activity {
 					Camera.Parameters p = mCamera.getParameters();
 					Size s = p.getPreviewSize();
 					double fps = mFrameCount / ((currentTime - mStartTime)/1000.0);
-					mInfoText.setText(String.format("recording... video size: %dx%d, FPS: %.2f", s.width, s.height, fps));
+					mInfoText.setText(String.format("HEVC video recording... size: %dx%d, FPS: %.2f", s.width, s.height, fps));
 					mStartTime = currentTime;
 					mFrameCount = 0;
 				}
