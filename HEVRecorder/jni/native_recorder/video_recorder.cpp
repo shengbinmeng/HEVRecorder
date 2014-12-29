@@ -77,6 +77,7 @@ VideoRecorder::VideoRecorder()
 	video_pkt_buf = NULL;
 	video_pkt_buf_size = 0;
 	timestamp_start = 0;
+	pts_last = 0;
 
 	// common
 	oc = NULL;
@@ -272,11 +273,11 @@ AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
 	AVCodecContext *c = st->codec;
 	// now these parameters are hard-coded
 	c->bit_rate = video_bitrate;
-	c->keyint_min = 150;
+	c->keyint_min = 48;
 	c->width = video_width;
 	c->height = video_height;
 	c->time_base.num = 1;
-	c->time_base.den = 15;
+	c->time_base.den = 12;
 	c->gop_size = 25;
 	c->thread_count = 5;
 	c->pix_fmt = video_pixfmt;
@@ -558,7 +559,7 @@ int VideoRecorder::supplyAudioSamples(const void *sampleData, unsigned long numB
 			}
 
 			audio_frame->nb_samples = dst_nb_samples;
-			audio_frame->pts = av_rescale_q(samples_count, (AVRational){1, c->sample_rate}, c->time_base);
+			audio_frame->pts = av_rescale_q(samples_count + 44100, (AVRational){1, c->sample_rate}, c->time_base);
 			avcodec_fill_audio_frame(audio_frame, c->channels, c->sample_fmt,
 					dst_samples[0], dst_samples_size, 0);
 
@@ -620,9 +621,24 @@ int VideoRecorder::supplyVideoFrame(const void *frameData, unsigned long numByte
 	video_frame->linesize[1] = video_frame->linesize[2] = stride_uv;
 
 	if (timestamp_start == 0) {
-		timestamp_start = timestamp;
+		struct timeval timeNow;
+		gettimeofday(&timeNow, NULL);
+		double tnow = timeNow.tv_sec + (timeNow.tv_usec / 1000000.0);
+		timestamp_start = tnow;
+		video_frame->pts = 0;
+		pts_last = 0;
+	} else {
+		struct timeval timeNow;
+		gettimeofday(&timeNow, NULL);
+		double tnow = timeNow.tv_sec + (timeNow.tv_usec / 1000000.0);
+		video_frame->pts = (tnow - timestamp_start) * (c->time_base.den / c->time_base.num);
+		if (video_frame->pts == pts_last) {
+			video_frame->pts++;
+		}
+		pts_last = video_frame->pts;
 	}
-	video_frame->pts = (timestamp - timestamp_start);
+
+
 
 	// encode to get packet
 	av_init_packet(&video_pkt);

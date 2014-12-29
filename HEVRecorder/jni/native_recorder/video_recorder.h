@@ -92,7 +92,8 @@ protected:
 	AVPacket video_pkt;
 	uint8_t *video_pkt_buf;
 	int video_pkt_buf_size;
-	unsigned long timestamp_start;
+	double timestamp_start;
+	int64_t pts_last;
 
 	int video_width;
 	int video_height;

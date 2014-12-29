@@ -10,9 +10,9 @@
 
 #define LOG_TAG "HlsVideoRecorder"
 
-#define SERVER_IP "172.31.105.171"
+#define SERVER_IP "172.31.105.192"
 #define SERVER_PORT 9898
-#define FRAME_NUMBER_PER_SEGMENT 150
+#define FRAME_NUMBER_PER_SEGMENT 48
 
 HlsVideoRecorder::HlsVideoRecorder()
 {
@@ -241,7 +241,6 @@ int HlsVideoRecorder::write_frame(AVFormatContext *fmt_ctx, const AVRational *ti
     pkt->dts = av_rescale_q_rnd(pkt->dts, *time_base, st->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
     pkt->duration = av_rescale_q(pkt->duration, *time_base, st->time_base);
     pkt->stream_index = st->index;
-
     // write the compressed frame to the media file
     int ret = -1;
 	pthread_mutex_lock(&write_mutex);

@@ -46,7 +46,7 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
     	Camera.Parameters p = mCamera.getParameters();
     	p.setPreviewFormat(ImageFormat.YV12);
     	mCamera.setParameters(p);
-
+    	
     	setPreviewSize();
     }
     
@@ -59,6 +59,8 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
     	int min = p.getSupportedPreviewFpsRange().get(0)[0];
     	int max = p.getSupportedPreviewFpsRange().get(0)[1];
     	p.setPreviewFpsRange(min, max);
+    	Log.i("CameraPreview", "preview FPS range: " + min + "," + max);
+
     	List<Camera.Size> l = p.getSupportedPreviewSizes();
     	Camera.Size size = l.get(0);
     	for (int i = 0; i < l.size(); i++) {
@@ -131,7 +133,7 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
             mCamera.setPreviewDisplay(mHolder);
             mCamera.startPreview();
 
-        } catch (Exception e){
+        } catch (Exception e) {
             Log.d(TAG, "Error starting camera preview: " + e.getMessage());
         }
     }
