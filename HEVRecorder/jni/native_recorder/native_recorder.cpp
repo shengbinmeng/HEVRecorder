@@ -61,7 +61,7 @@ int native_recorder_open(JNIEnv *env, jobject thiz, jint width, jint height, jst
 int native_recorder_encode_video(JNIEnv *env, jobject thiz, jbyteArray array)
 {
 	// skip frames if encoding is slow
-	if ((frameCount % 1) != 0) {
+	if ((frameCount % 2) != 0) {
 		frameCount++;
 		return 0;
 	}
