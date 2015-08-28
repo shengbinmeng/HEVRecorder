@@ -10,9 +10,9 @@
 
 #define LOG_TAG "HlsVideoRecorder"
 
-#define SERVER_IP "172.31.105.192"
+#define SERVER_IP "192.168.3.102"
 #define SERVER_PORT 9898
-#define FRAME_NUMBER_PER_SEGMENT 48
+#define FRAME_NUMBER_PER_SEGMENT 24
 
 HlsVideoRecorder::HlsVideoRecorder()
 {

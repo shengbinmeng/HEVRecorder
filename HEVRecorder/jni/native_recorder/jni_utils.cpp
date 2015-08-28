@@ -2,11 +2,11 @@
 #include <android/log.h>
 #include "jni_utils.h"
 
-#define LOG_TAG    "jni_utils"
+#define LOG_TAG "jni_utils"
 
 static JavaVM *gVM;
 
-extern int register_native_methods(JNIEnv *env);
+extern int register_natives(JNIEnv *env);
 
 /*
  * Throw an exception with the specified class and an optional message.
@@ -14,11 +14,11 @@ extern int register_native_methods(JNIEnv *env);
 int jniThrowException(JNIEnv* env, const char* className, const char* msg) {
 	jclass exceptionClass = env->FindClass(className);
 	if (exceptionClass == NULL) {
-		LOGE("Unable to find exception class %s", className);
+		LOGE("Unable to find exception class %s \n", className);
 		return -1;
 	}
 	if (env->ThrowNew(exceptionClass, msg) != JNI_OK) {
-		LOGE("Failed throwing '%s' '%s'", className, msg);
+		LOGE("Failed throwing '%s' '%s' \n", className, msg);
 	}
 	return 0;
 }
@@ -44,9 +44,9 @@ void detachJVM() {
 	int ret;
 	ret = gVM->DetachCurrentThread();
 	if (ret == JNI_OK) {
-		LOGI("detach return OK: %d", ret);
+		LOGI("detach return OK: %d \n", ret);
 	} else {
-		LOGE("detach return NOT OK: %d", ret);
+		LOGE("detach return NOT OK: %d \n", ret);
 	}
 }
 
@@ -59,14 +59,14 @@ int jniRegisterNativeMethods(JNIEnv* env, const char* className,
 		const JNINativeMethod* gMethods, int numMethods) {
 	jclass clazz;
 
-	LOGI("Registering %s natives\n", className);
+	LOGI("Registering %s natives \n", className);
 	clazz = env->FindClass(className);
 	if (clazz == NULL) {
-		LOGE("Native registration unable to find class '%s'\n", className);
+		LOGE("Native registration unable to find class '%s' \n", className);
 		return -1;
 	}
 	if (env->RegisterNatives(clazz, gMethods, numMethods) < 0) {
-		LOGE("RegisterNatives failed for '%s'\n", className);
+		LOGE("RegisterNatives failed for '%s' \n", className);
 		return -1;
 	}
 	return 0;
@@ -78,16 +78,16 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
 	gVM = vm;
 
 	if (vm->GetEnv((void**) &env, JNI_VERSION_1_4) != JNI_OK) {
-		LOGE("GetEnv failed!");
+		LOGE("GetEnv failed! \n");
 		return JNI_ERR;
 	}
 
-	LOGI("loading . . .");
-	if (register_native_methods(env) != JNI_OK) {
-		LOGE("can't register native methods");
+	LOGI("loading . . . \n");
+	if (register_natives(env) != JNI_OK) {
+		LOGE("register functions failed \n");
 		return JNI_ERR;
 	}
-	LOGI("loaded");
+	LOGI("loaded \n");
 
 	return JNI_VERSION_1_4;
 }

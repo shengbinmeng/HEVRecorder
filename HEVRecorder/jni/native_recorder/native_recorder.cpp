@@ -99,7 +99,7 @@ static JNINativeMethod gMethods[] = {
     {"native_recorder_close", "()I", (void *)native_recorder_close},
 };
 
-int register_native_methods(JNIEnv *env)
+int register_natives(JNIEnv *env)
 {
 	return jniRegisterNativeMethods(env, "pku/shengbin/hevrecorder/RecordingActivity", gMethods, sizeof(gMethods) / sizeof(gMethods[0]));
 }

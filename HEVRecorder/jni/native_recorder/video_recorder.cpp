@@ -273,7 +273,7 @@ AVStream *VideoRecorder::add_video_stream(enum AVCodecID codec_id)
 	AVCodecContext *c = st->codec;
 	// now these parameters are hard-coded
 	c->bit_rate = video_bitrate;
-	c->keyint_min = 48;
+	c->keyint_min = 24;
 	c->width = video_width;
 	c->height = video_height;
 	c->time_base.num = 1;
